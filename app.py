@@ -552,11 +552,21 @@ with tab_plants:
 
                     cb1, cb2, cb3 = st.columns(3)
                     with cb1:
-                        if st.button("✓ Hecho", key=f"done_{pi}_{ti}", use_container_width=True):
-                            data["plants"][pi]["treatments"][ti]["last_date"] = str(today)
-                            with st.spinner("Guardando..."):
-                                save_data(data)
-                            st.rerun()
+                        with st.popover("✓ Hecho", use_container_width=True):
+                            apply_date = st.date_input("Fecha de aplicación", value=today, key=f"apdate_{pi}_{ti}")
+                            apply_notes = st.text_input("Notas (opcional)", key=f"apnotes_{pi}_{ti}", placeholder="ej: dosis reducida")
+                            if st.button("💾 Registrar", key=f"done_{pi}_{ti}", use_container_width=True):
+                                data["plants"][pi]["treatments"][ti]["last_date"] = str(apply_date)
+                                data["plants"][pi].setdefault("history", []).append({
+                                    "kind":     "treatment",
+                                    "name":     t["name"],
+                                    "date":     str(apply_date),
+                                    "date_end": "",
+                                    "notes":    apply_notes.strip(),
+                                })
+                                with st.spinner("Guardando..."):
+                                    save_data(data)
+                                st.rerun()
                     with cb2:
                         with st.popover("✏️ Editar", use_container_width=True):
                             et_name = st.text_input("Nombre", value=t["name"], key=f"etn_{pi}_{ti}")
