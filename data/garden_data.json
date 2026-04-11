@@ -14,7 +14,7 @@
           "name": "Neem + Jabon potasico",
           "type": "periodic",
           "interval_days": 15,
-          "last_date": "2026-04-11"
+          "last_date": "2026-04-10"
         }
       ],
       "events": [
@@ -38,6 +38,13 @@
           "date": "2026-04-01",
           "date_end": "",
           "notes": "primera dosis"
+        },
+        {
+          "kind": "treatment",
+          "name": "Neem + Jabon potasico",
+          "date": "2026-04-10",
+          "date_end": "",
+          "notes": ""
         }
       ]
     },
