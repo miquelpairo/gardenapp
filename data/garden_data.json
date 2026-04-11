@@ -111,5 +111,14 @@
       "sick_end": "",
       "history": []
     }
+  ],
+  "products": [
+    {
+      "name": "Aceite de Neem",
+      "type": "Insecticida",
+      "dose": "10 ml/L",
+      "expiry": "10-2027",
+      "notes": "3 días plazo de seguridad"
+    }
   ]
 }
