@@ -27,7 +27,9 @@
       "location": "",
       "notes": "",
       "photo": "plant_0_Llimoner.jpeg",
-      "sick": false
+      "sick": false,
+      "sick_name": "",
+      "sick_date": ""
     },
     {
       "name": "Figuera",
@@ -44,7 +46,9 @@
       "location": "",
       "notes": "",
       "photo": "",
-      "sick": false
+      "sick": false,
+      "sick_name": "",
+      "sick_date": ""
     },
     {
       "name": "Cirerer",
@@ -54,7 +58,9 @@
       "location": "Entrada jardí",
       "notes": "",
       "photo": "plant_2_Cirerer.jpeg",
-      "sick": false
+      "sick": false,
+      "sick_name": "",
+      "sick_date": ""
     },
     {
       "name": "Olivera",
@@ -64,7 +70,9 @@
       "location": "Entrada Jardi",
       "notes": "",
       "photo": "",
-      "sick": true
+      "sick": true,
+      "sick_name": "Mosca blanca del olivo",
+      "sick_date": "2026-04-11"
     },
     {
       "name": "Arbre de Judea",
@@ -74,7 +82,9 @@
       "photo": "",
       "treatments": [],
       "events": [],
-      "sick": false
+      "sick": false,
+      "sick_name": "",
+      "sick_date": ""
     }
   ]
 }
