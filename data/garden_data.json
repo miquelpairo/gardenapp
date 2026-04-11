@@ -81,7 +81,7 @@
       "photo": "",
       "treatments": [],
       "events": [],
-      "sick": false
+      "sick": true
     }
   ]
 }
