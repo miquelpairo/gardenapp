@@ -104,6 +104,13 @@ h1, h2, h3 { font-family: 'Playfair Display', serif !important; }
     padding-bottom: 3px; margin: 0.8rem 0 0.5rem;
 }
 
+/* Sick plant highlight */
+.sick-banner {
+    background: #fff0f0; border: 1px solid #f5c6cb;
+    border-radius: 8px; padding: 6px 12px; margin-bottom: 8px;
+    color: #842029; font-size: 0.82rem; font-weight: 600;
+}
+
 /* Big touch buttons */
 .stButton > button {
     border-radius: 8px !important;
@@ -130,7 +137,7 @@ IS_MOBILE = st.session_state.get("is_mobile", True)
 DEFAULT_DATA = {
     "plants": [
         {
-            "name": "Limonero", "emoji": "🍋", "location": "", "notes": "", "photo": "",
+            "name": "Limonero", "emoji": "🍋", "location": "", "notes": "", "photo": "", "sick": False,
             "treatments": [
                 {"name": "Acetamiprid",          "type": "periodic", "interval_days": 12,
                  "last_date": str(date.today() - timedelta(days=1))},
@@ -139,14 +146,14 @@ DEFAULT_DATA = {
             ], "events": []
         },
         {
-            "name": "Higuera", "emoji": "🌿", "location": "", "notes": "", "photo": "",
+            "name": "Higuera", "emoji": "🌿", "location": "", "notes": "", "photo": "", "sick": False,
             "treatments": [
                 {"name": "Neem + Jabon potasico", "type": "periodic", "interval_days": 15,
                  "last_date": str(date.today())},
             ], "events": []
         },
         {
-            "name": "Cerezo", "emoji": "🍒", "location": "", "notes": "", "photo": "",
+            "name": "Cerezo", "emoji": "🍒", "location": "", "notes": "", "photo": "", "sick": False,
             "treatments": [
                 {"name": "Neem + Jabon potasico", "type": "periodic", "interval_days": 15,
                  "last_date": None},
@@ -156,16 +163,16 @@ DEFAULT_DATA = {
 }
 
 # ── GitHub helpers ────────────────────────────────────────────────────────────
-def gh_get_file(path):
-    """Returns (content_str, sha) or (None, None)"""
+def gh_get_file(path, binary=False):
+    """Returns (content, sha) or (None, None). Pass binary=True for images."""
     if not GITHUB_OK:
         return None, None
     url = f"https://api.github.com/repos/{GH_REPO}/contents/{path}?ref={GH_BRANCH}"
     r = requests.get(url, headers=GH_HEADERS, timeout=10)
     if r.status_code == 200:
-        data = r.json()
-        content = base64.b64decode(data["content"]).decode("utf-8")
-        return content, data["sha"]
+        d = r.json()
+        raw = base64.b64decode(d["content"])
+        return (raw if binary else raw.decode("utf-8")), d["sha"]
     return None, None
 
 def gh_put_file(path, content_str, sha=None, message="Update garden data"):
@@ -216,6 +223,7 @@ def load_data_cached():
                 p.setdefault("location", "")
                 p.setdefault("notes", "")
                 p.setdefault("photo", "")
+                p.setdefault("sick", False)
                 for t in p.get("treatments", []):
                     t.setdefault("type", "periodic")
             return d, sha
@@ -396,7 +404,20 @@ with tab_cal:
 # ════════════════════════════════════════════════════════════════════════════
 with tab_plants:
     for pi, plant in enumerate(data["plants"]):
-        with st.expander(f"{plant['emoji']} {plant['name']}", expanded=True):
+        is_sick = plant.get("sick", False)
+        label   = f"{'🐛 ' if is_sick else ''}{plant['emoji']} {plant['name']}"
+        with st.expander(label, expanded=False):
+
+            # Sick banner + checkbox
+            sick_checked = st.checkbox("🐛 Plaga / enfermedad activa", value=is_sick, key=f"sick_{pi}")
+            if sick_checked != is_sick:
+                data["plants"][pi]["sick"] = sick_checked
+                with st.spinner("Guardando..."):
+                    save_data(data)
+                st.rerun()
+            if is_sick:
+                st.markdown('<div class="sick-banner">⚠️ Planta con plaga o enfermedad activa</div>',
+                            unsafe_allow_html=True)
 
             # Photo + meta
             photo_url = gh_raw_url(f"{PHOTOS_PATH}/{plant['photo']}") if plant.get("photo") else None
@@ -430,7 +451,7 @@ with tab_plants:
                 if uploaded:
                     ext = uploaded.name.rsplit(".",1)[-1].lower()
                     fname = f"plant_{pi}_{plant['name'].replace(' ','_')}.{ext}"
-                    _, old_sha = gh_get_file(f"{PHOTOS_PATH}/{fname}")
+                    _, old_sha = gh_get_file(f"{PHOTOS_PATH}/{fname}", binary=True)
                     ok = gh_put_binary(f"{PHOTOS_PATH}/{fname}", uploaded.read(), sha=old_sha)
                     if ok:
                         data["plants"][pi]["photo"] = fname
