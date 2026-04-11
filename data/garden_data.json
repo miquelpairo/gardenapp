@@ -5,12 +5,6 @@
       "emoji": "🍋",
       "treatments": [
         {
-          "name": "Acetamiprid",
-          "type": "periodic",
-          "interval_days": 12,
-          "last_date": "2026-04-01"
-        },
-        {
           "name": "Neem + Jabon potasico",
           "type": "periodic",
           "interval_days": 15,
