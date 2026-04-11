@@ -224,6 +224,8 @@ def load_data_cached():
                 p.setdefault("notes", "")
                 p.setdefault("photo", "")
                 p.setdefault("sick", False)
+                p.setdefault("sick_name", "")
+                p.setdefault("sick_date", "")
                 for t in p.get("treatments", []):
                     t.setdefault("type", "periodic")
             return d, sha
@@ -408,15 +410,40 @@ with tab_plants:
         label   = f"{'🐛 ' if is_sick else ''}{plant['emoji']} {plant['name']}"
         with st.expander(label, expanded=False):
 
-            # Sick banner + checkbox
+            # ── Plaga / enfermedad ───────────────────────────────────────
             sick_checked = st.checkbox("🐛 Plaga / enfermedad activa", value=is_sick, key=f"sick_{pi}")
             if sick_checked != is_sick:
                 data["plants"][pi]["sick"] = sick_checked
+                if not sick_checked:
+                    # Clear details when unchecking
+                    data["plants"][pi]["sick_name"] = ""
+                    data["plants"][pi]["sick_date"] = ""
                 with st.spinner("Guardando..."):
                     save_data(data)
                 st.rerun()
+
             if is_sick:
-                st.markdown('<div class="sick-banner">⚠️ Planta con plaga o enfermedad activa</div>',
+                sc1, sc2 = st.columns(2)
+                with sc1:
+                    sick_name = st.text_input("Tipo de plaga / enfermedad",
+                                              value=plant.get("sick_name", ""),
+                                              placeholder="ej: Mosca blanca, Oidio...",
+                                              key=f"sname_{pi}")
+                with sc2:
+                    sick_date_val = date.fromisoformat(plant["sick_date"]) if plant.get("sick_date") else today
+                    sick_date = st.date_input("Fecha de detección", value=sick_date_val, key=f"sdate_{pi}")
+
+                if st.button("💾 Guardar plaga", key=f"ssave_{pi}"):
+                    data["plants"][pi]["sick_name"] = sick_name.strip()
+                    data["plants"][pi]["sick_date"] = str(sick_date)
+                    with st.spinner("Guardando..."):
+                        save_data(data)
+                    st.rerun()
+
+                # Banner
+                sname_txt = plant.get("sick_name") or "sin especificar"
+                sdate_txt = plant.get("sick_date") or "—"
+                st.markdown(f'<div class="sick-banner">⚠️ {sname_txt} · detectado: {sdate_txt}</div>',
                             unsafe_allow_html=True)
 
             # Photo + meta
