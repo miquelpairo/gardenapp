@@ -29,7 +29,9 @@
       "photo": "plant_0_Llimoner.jpeg",
       "sick": false,
       "sick_name": "",
-      "sick_date": ""
+      "sick_date": "",
+      "sick_end": "",
+      "history": []
     },
     {
       "name": "Figuera",
@@ -48,7 +50,9 @@
       "photo": "",
       "sick": false,
       "sick_name": "",
-      "sick_date": ""
+      "sick_date": "",
+      "sick_end": "",
+      "history": []
     },
     {
       "name": "Cirerer",
@@ -60,7 +64,9 @@
       "photo": "plant_2_Cirerer.jpeg",
       "sick": false,
       "sick_name": "",
-      "sick_date": ""
+      "sick_date": "",
+      "sick_end": "",
+      "history": []
     },
     {
       "name": "Olivera",
@@ -72,7 +78,9 @@
       "photo": "",
       "sick": true,
       "sick_name": "Mosca blanca del olivo",
-      "sick_date": "2026-04-11"
+      "sick_date": "2026-04-11",
+      "sick_end": "",
+      "history": []
     },
     {
       "name": "Arbre de Judea",
@@ -84,7 +92,9 @@
       "events": [],
       "sick": false,
       "sick_name": "",
-      "sick_date": ""
+      "sick_date": "",
+      "sick_end": "",
+      "history": []
     }
   ]
 }
