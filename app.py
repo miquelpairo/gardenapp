@@ -226,6 +226,8 @@ def load_data_cached():
                 p.setdefault("sick", False)
                 p.setdefault("sick_name", "")
                 p.setdefault("sick_date", "")
+                p.setdefault("sick_end", "")
+                p.setdefault("history", [])
                 for t in p.get("treatments", []):
                     t.setdefault("type", "periodic")
             return d, sha
@@ -415,15 +417,15 @@ with tab_plants:
             if sick_checked != is_sick:
                 data["plants"][pi]["sick"] = sick_checked
                 if not sick_checked:
-                    # Clear details when unchecking
                     data["plants"][pi]["sick_name"] = ""
                     data["plants"][pi]["sick_date"] = ""
+                    data["plants"][pi]["sick_end"]  = ""
                 with st.spinner("Guardando..."):
                     save_data(data)
                 st.rerun()
 
             if is_sick:
-                sc1, sc2 = st.columns(2)
+                sc1, sc2, sc3 = st.columns(3)
                 with sc1:
                     sick_name = st.text_input("Tipo de plaga / enfermedad",
                                               value=plant.get("sick_name", ""),
@@ -431,16 +433,37 @@ with tab_plants:
                                               key=f"sname_{pi}")
                 with sc2:
                     sick_date_val = date.fromisoformat(plant["sick_date"]) if plant.get("sick_date") else today
-                    sick_date = st.date_input("Fecha de detección", value=sick_date_val, key=f"sdate_{pi}")
+                    sick_date = st.date_input("Fecha detección", value=sick_date_val, key=f"sdate_{pi}")
+                with sc3:
+                    sick_end = st.date_input("Fecha fin (opcional)", value=None, key=f"send_{pi}")
 
-                if st.button("💾 Guardar plaga", key=f"ssave_{pi}"):
-                    data["plants"][pi]["sick_name"] = sick_name.strip()
-                    data["plants"][pi]["sick_date"] = str(sick_date)
-                    with st.spinner("Guardando..."):
-                        save_data(data)
-                    st.rerun()
+                col_save, col_close = st.columns(2)
+                with col_save:
+                    if st.button("💾 Guardar plaga", key=f"ssave_{pi}"):
+                        data["plants"][pi]["sick_name"] = sick_name.strip()
+                        data["plants"][pi]["sick_date"] = str(sick_date)
+                        with st.spinner("Guardando..."):
+                            save_data(data)
+                        st.rerun()
+                with col_close:
+                    if st.button("✅ Cerrar plaga", key=f"sclose_{pi}", help="Archiva en historial y desactiva"):
+                        if sick_name.strip() or plant.get("sick_name"):
+                            entry = {
+                                "kind":      "plaga",
+                                "name":      (sick_name.strip() or plant.get("sick_name", "Plaga")),
+                                "date":      str(sick_date) if sick_name else plant.get("sick_date", str(today)),
+                                "date_end":  str(sick_end) if sick_end else str(today),
+                                "notes":     "",
+                            }
+                            data["plants"][pi].setdefault("history", []).append(entry)
+                        data["plants"][pi]["sick"]      = False
+                        data["plants"][pi]["sick_name"] = ""
+                        data["plants"][pi]["sick_date"] = ""
+                        data["plants"][pi]["sick_end"]  = ""
+                        with st.spinner("Archivando..."):
+                            save_data(data)
+                        st.rerun()
 
-                # Banner
                 sname_txt = plant.get("sick_name") or "sin especificar"
                 sdate_txt = plant.get("sick_date") or "—"
                 st.markdown(f'<div class="sick-banner">⚠️ {sname_txt} · detectado: {sdate_txt}</div>',
@@ -588,11 +611,45 @@ with tab_plants:
                                 save_data(data)
                             st.rerun()
 
-            if past:
+            # ── Historial ────────────────────────────────────────────────
+            # Build unified history from: past events + plant.history entries
+            history_entries = list(plant.get("history", []))
+            for ev in plant.get("events", []):
+                ev_d = date.fromisoformat(ev["date"])
+                if ev_d < today:
+                    history_entries.append({
+                        "kind":  ev.get("kind", "oneoff"),
+                        "name":  ev["name"],
+                        "date":  ev["date"],
+                        "date_end": "",
+                        "notes": "",
+                    })
+
+            if history_entries:
                 st.markdown('<div class="section-title">Historial</div>', unsafe_allow_html=True)
-                for ev in past[:10]:
-                    icon = "✂️" if ev.get("kind") == "poda" else "📌"
-                    st.caption(f"{icon} {ev['date']} — {ev['name']}")
+
+                # Type filter
+                all_kinds  = sorted({e.get("kind","oneoff") for e in history_entries})
+                kind_labels = {"poda":"✂️ Poda","plaga":"🐛 Plaga","oneoff":"📌 Evento","treatment":"💊 Tratamiento"}
+                filter_opts = ["Todos"] + [kind_labels.get(k, k) for k in all_kinds]
+                sel_filter  = st.selectbox("Filtrar por tipo", filter_opts, key=f"hfilter_{pi}")
+
+                # Year grouping
+                filtered = sorted(history_entries, key=lambda x: x["date"], reverse=True)
+                if sel_filter != "Todos":
+                    inv_labels = {v: k for k, v in kind_labels.items()}
+                    filtered = [e for e in filtered if kind_labels.get(e.get("kind","oneoff")) == sel_filter]
+
+                years = sorted({e["date"][:4] for e in filtered}, reverse=True)
+                for year in years:
+                    year_entries = [e for e in filtered if e["date"].startswith(year)]
+                    st.markdown(f"**{year}** · {len(year_entries)} entradas")
+                    for e in year_entries:
+                        icon = kind_labels.get(e.get("kind","oneoff"), "📌")
+                        date_str = e["date"]
+                        if e.get("date_end"):
+                            date_str += f" → {e['date_end']}"
+                        st.caption(f"{icon} {date_str} — {e['name']}")
 
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 3 — ADD
