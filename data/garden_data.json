@@ -1,0 +1,73 @@
+{
+  "plants": [
+    {
+      "name": "Llimoner",
+      "emoji": "🍋",
+      "treatments": [
+        {
+          "name": "Acetamiprid",
+          "type": "periodic",
+          "interval_days": 12,
+          "last_date": "2026-04-01"
+        },
+        {
+          "name": "Neem + Jabon potasico",
+          "type": "periodic",
+          "interval_days": 15,
+          "last_date": "2026-04-11"
+        }
+      ],
+      "events": [
+        {
+          "name": "Poda y limpieza de mosca blanca",
+          "date": "2026-04-01",
+          "kind": "poda"
+        }
+      ],
+      "location": "",
+      "notes": "",
+      "photo": ""
+    },
+    {
+      "name": "Figuera",
+      "emoji": "🌿",
+      "treatments": [
+        {
+          "name": "Neem + Jabon potasico",
+          "type": "periodic",
+          "interval_days": 15,
+          "last_date": "2026-04-11"
+        }
+      ],
+      "events": [],
+      "location": "",
+      "notes": "",
+      "photo": ""
+    },
+    {
+      "name": "Cirerer",
+      "emoji": "🍒",
+      "treatments": [
+        {
+          "name": "Neem + Jabon potasico",
+          "type": "periodic",
+          "interval_days": 15,
+          "last_date": null
+        }
+      ],
+      "events": [],
+      "location": "",
+      "notes": "",
+      "photo": ""
+    },
+    {
+      "name": "Olivera",
+      "emoji": "🫒",
+      "treatments": [],
+      "events": [],
+      "location": "",
+      "notes": "",
+      "photo": ""
+    }
+  ]
+}
