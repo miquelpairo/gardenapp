@@ -26,7 +26,8 @@
       ],
       "location": "",
       "notes": "",
-      "photo": ""
+      "photo": "plant_0_Llimoner.png",
+      "sick": false
     },
     {
       "name": "Figuera",
@@ -42,7 +43,8 @@
       "events": [],
       "location": "",
       "notes": "",
-      "photo": ""
+      "photo": "",
+      "sick": false
     },
     {
       "name": "Cirerer",
@@ -58,7 +60,8 @@
       "events": [],
       "location": "",
       "notes": "",
-      "photo": ""
+      "photo": "",
+      "sick": false
     },
     {
       "name": "Olivera",
@@ -67,7 +70,8 @@
       "events": [],
       "location": "",
       "notes": "",
-      "photo": ""
+      "photo": "",
+      "sick": false
     },
     {
       "name": "Arbre de Judea",
@@ -76,7 +80,8 @@
       "notes": "",
       "photo": "",
       "treatments": [],
-      "events": []
+      "events": [],
+      "sick": false
     }
   ]
 }
