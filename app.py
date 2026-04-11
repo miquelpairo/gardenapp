@@ -460,7 +460,7 @@ with tab_plants:
                 if plant.get("photo"):
                     st.caption(f"Foto: {plant['photo']}")
                     if st.button("🗑 Eliminar foto", key=f"dph_{pi}"):
-                        _, ph_sha = gh_get_file(f"{PHOTOS_PATH}/{plant['photo']}")
+                        _, ph_sha = gh_get_file(f"{PHOTOS_PATH}/{plant['photo']}", binary=True)
                         if ph_sha:
                             gh_delete_file(f"{PHOTOS_PATH}/{plant['photo']}", ph_sha)
                         data["plants"][pi]["photo"] = ""
@@ -478,7 +478,7 @@ with tab_plants:
                 with cd:
                     if st.button("🗑 Eliminar", key=f"dp_{pi}", type="primary"):
                         if plant.get("photo"):
-                            _, ph_sha = gh_get_file(f"{PHOTOS_PATH}/{plant['photo']}")
+                            _, ph_sha = gh_get_file(f"{PHOTOS_PATH}/{plant['photo']}", binary=True)
                             if ph_sha: gh_delete_file(f"{PHOTOS_PATH}/{plant['photo']}", ph_sha)
                         data["plants"].pop(pi)
                         with st.spinner("Eliminando..."):
