@@ -8,7 +8,7 @@
           "name": "Acetamiprid",
           "type": "periodic",
           "interval_days": 12,
-          "last_date": "2026-04-11"
+          "last_date": "2026-04-01"
         },
         {
           "name": "Neem + Jabon potasico",
@@ -31,7 +31,15 @@
       "sick_name": "",
       "sick_date": "",
       "sick_end": "",
-      "history": []
+      "history": [
+        {
+          "kind": "treatment",
+          "name": "Acetamiprid",
+          "date": "2026-04-01",
+          "date_end": "",
+          "notes": "primera dosis"
+        }
+      ]
     },
     {
       "name": "Figuera",
