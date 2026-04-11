@@ -135,6 +135,11 @@ IS_MOBILE = st.session_state.get("is_mobile", True)
 
 # ── Default data ──────────────────────────────────────────────────────────────
 DEFAULT_DATA = {
+    "products": [
+        {"name": "Acetamiprid 20%", "type": "insecticida", "dose": "0.5g/L", "notes": "Sistémico. Plazo seguridad 14d.", "expiry": ""},
+        {"name": "Aceite de Neem", "type": "fungicida/insecticida", "dose": "5ml/L", "notes": "Mezclar con jabón potásico.", "expiry": ""},
+        {"name": "Jabón Potásico", "type": "adyuvante/insecticida", "dose": "15ml/L", "notes": "Emulsionante para neem.", "expiry": ""},
+    ],
     "plants": [
         {
             "name": "Limonero", "emoji": "🍋", "location": "", "notes": "", "photo": "", "sick": False,
@@ -218,6 +223,7 @@ def load_data_cached():
     if content:
         try:
             d = json.loads(content)
+            d.setdefault("products", [])
             for p in d.get("plants", []):
                 p.setdefault("events", [])
                 p.setdefault("location", "")
@@ -313,7 +319,80 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_cal, tab_plants, tab_add = st.tabs(["📅 Calendario", "🌱 Plantas", "➕ Añadir"])
+tab_today, tab_cal, tab_plants, tab_add = st.tabs(["🏠 Hoy", "📅 Calendario", "🌱 Plantas", "➕ Añadir"])
+
+# ════════════════════════════════════════════════════════════════════════════
+# TAB 0 — HOY
+# ════════════════════════════════════════════════════════════════════════════
+with tab_today:
+    st.markdown(f"### {today.strftime('%A %d de %B').capitalize()}")
+
+    # ── Plantas enfermas ─────────────────────────────────────────────────
+    sick_plants = [p for p in data["plants"] if p.get("sick")]
+    if sick_plants:
+        st.markdown('<div class="sick-banner" style="margin-bottom:1rem">'
+                    + "  ".join(f"🐛 {p['emoji']} {p['name']} — {p.get('sick_name') or 'plaga activa'}"
+                                for p in sick_plants)
+                    + '</div>', unsafe_allow_html=True)
+
+    # ── Tratamientos de hoy y vencidos ───────────────────────────────────
+    overdue, due_today, due_soon = [], [], []
+    for plant in data["plants"]:
+        for t in plant["treatments"]:
+            nd = next_date(t.get("last_date"), t["interval_days"])
+            if nd is None:
+                continue
+            delta = (nd - today).days
+            entry = {"plant": plant, "treatment": t, "nd": nd, "delta": delta}
+            if delta < 0:   overdue.append(entry)
+            elif delta == 0: due_today.append(entry)
+            elif delta <= 3: due_soon.append(entry)
+
+    if not overdue and not due_today and not due_soon:
+        st.success("✅ Todo al día — no hay tratamientos pendientes ni próximos.")
+    else:
+        def render_today_treatment(entry, pi_lookup):
+            p, t, nd, delta = entry["plant"], entry["treatment"], entry["nd"], entry["delta"]
+            pi = pi_lookup[p["name"]]
+            ti = p["treatments"].index(t)
+            if delta < 0:
+                badge = f'<span class="badge badge-due">Vencido {abs(delta)}d</span>'
+            elif delta == 0:
+                badge = '<span class="badge badge-due">Hoy</span>'
+            else:
+                badge = f'<span class="badge badge-soon">En {delta}d</span>'
+            st.markdown(f"""
+            <div class="t-card">
+                <div class="t-card-name">{p['emoji']} {p['name']} — {t['name']} {badge}</div>
+                <div class="t-card-meta">Próxima: {nd}</div>
+            </div>""", unsafe_allow_html=True)
+            with st.popover("✓ Registrar aplicación", use_container_width=True):
+                apply_date  = st.date_input("Fecha", value=today, key=f"td_date_{pi}_{ti}")
+                apply_notes = st.text_input("Notas", key=f"td_notes_{pi}_{ti}", placeholder="opcional")
+                if st.button("💾 Guardar", key=f"td_save_{pi}_{ti}"):
+                    data["plants"][pi]["treatments"][ti]["last_date"] = str(apply_date)
+                    data["plants"][pi].setdefault("history", []).append({
+                        "kind": "treatment", "name": t["name"],
+                        "date": str(apply_date), "date_end": "", "notes": apply_notes.strip(),
+                    })
+                    with st.spinner("Guardando..."):
+                        save_data(data)
+                    st.rerun()
+
+        pi_lookup = {p["name"]: i for i, p in enumerate(data["plants"])}
+
+        if overdue:
+            st.markdown('<div class="section-title">⚠️ Vencidos</div>', unsafe_allow_html=True)
+            for entry in overdue:
+                render_today_treatment(entry, pi_lookup)
+        if due_today:
+            st.markdown('<div class="section-title">📅 Hoy</div>', unsafe_allow_html=True)
+            for entry in due_today:
+                render_today_treatment(entry, pi_lookup)
+        if due_soon:
+            st.markdown('<div class="section-title">🔔 Próximos 3 días</div>', unsafe_allow_html=True)
+            for entry in due_soon:
+                render_today_treatment(entry, pi_lookup)
 
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 1 — CALENDAR
@@ -622,6 +701,29 @@ with tab_plants:
                             st.rerun()
 
             # ── Historial ────────────────────────────────────────────────
+            # Manual entry
+            with st.popover("➕ Añadir entrada al historial"):
+                he_kind  = st.selectbox("Tipo", ["poda","treatment","plaga","oneoff"],
+                                        format_func=lambda x: {"poda":"✂️ Poda","treatment":"💊 Tratamiento","plaga":"🐛 Plaga","oneoff":"📌 Otro"}[x],
+                                        key=f"he_kind_{pi}")
+                he_name  = st.text_input("Descripción", key=f"he_name_{pi}", placeholder="ej: Poda de verano")
+                he_date  = st.date_input("Fecha", value=today, key=f"he_date_{pi}")
+                he_end   = st.date_input("Fecha fin (opcional)", value=None, key=f"he_end_{pi}")
+                he_notes = st.text_input("Notas", key=f"he_notes_{pi}", placeholder="opcional")
+                if st.button("💾 Guardar entrada", key=f"he_save_{pi}"):
+                    if he_name.strip():
+                        data["plants"][pi].setdefault("history", []).append({
+                            "kind": he_kind, "name": he_name.strip(),
+                            "date": str(he_date),
+                            "date_end": str(he_end) if he_end else "",
+                            "notes": he_notes.strip(),
+                        })
+                        with st.spinner("Guardando..."):
+                            save_data(data)
+                        st.rerun()
+                    else:
+                        st.warning("Escribe una descripción.")
+
             # Build unified history from: past events + plant.history entries
             history_entries = list(plant.get("history", []))
             for ev in plant.get("events", []):
@@ -685,7 +787,20 @@ with tab_add:
     st.markdown("---")
     st.markdown("#### 🔄 Tratamiento periódico")
     sel_p2     = st.selectbox("Planta", plant_names, key="t_plant")
-    t_name     = st.text_input("Nombre del tratamiento", key="t_name")
+    # Product selector from catalog
+    prod_names = [p["name"] for p in data.get("products", [])]
+    if prod_names:
+        use_catalog = st.checkbox("Seleccionar del catálogo", key="t_use_catalog")
+        if use_catalog:
+            sel_prod = st.selectbox("Producto", prod_names, key="t_prod_sel")
+            t_name   = sel_prod
+            prod_obj = next((p for p in data["products"] if p["name"] == sel_prod), {})
+            if prod_obj.get("dose"):
+                st.caption(f"Dosis: {prod_obj['dose']}  ·  {prod_obj.get('notes','')}")
+        else:
+            t_name = st.text_input("Nombre del tratamiento", key="t_name")
+    else:
+        t_name = st.text_input("Nombre del tratamiento", key="t_name")
     t_interval = st.number_input("Intervalo (días)", 1, 365, 15, key="t_interval")
     t_last     = st.date_input("Última aplicación (opcional)", value=None, key="t_last")
     if st.button("Añadir tratamiento", use_container_width=True):
@@ -713,11 +828,80 @@ with tab_add:
             data["plants"].append({
                 "name": new_p_name.strip(), "emoji": new_p_emoji,
                 "location": new_p_location.strip(), "notes": new_p_notes.strip(),
-                "photo": "", "treatments": [], "events": []
+                "photo": "", "treatments": [], "events": [],
+                "sick": False, "sick_name": "", "sick_date": "", "sick_end": "", "history": []
             })
             with st.spinner("Guardando..."):
                 save_data(data)
             st.success(f"{new_p_emoji} '{new_p_name}' añadido")
+            st.rerun()
+        else:
+            st.warning("Escribe un nombre.")
+
+    # ════════════════════════════════════════════════════════════════════
+    # CATÁLOGO DE PRODUCTOS
+    # ════════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("#### 🧪 Catálogo de productos")
+
+    products = data.get("products", [])
+    if products:
+        for pri, prod in enumerate(products):
+            with st.expander(f"🧪 {prod['name']} · {prod.get('type','')}"):
+                pc1, pc2 = st.columns(2)
+                with pc1:
+                    st.markdown(f"**Dosis:** {prod.get('dose') or '—'}")
+                    st.markdown(f"**Caducidad:** {prod.get('expiry') or '—'}")
+                with pc2:
+                    st.markdown(f"**Notas:** {prod.get('notes') or '—'}")
+                with st.popover("✏️ Editar"):
+                    ep_name   = st.text_input("Nombre", value=prod["name"], key=f"ep_name_{pri}")
+                    ep_type   = st.text_input("Tipo", value=prod.get("type",""), key=f"ep_type_{pri}",
+                                              placeholder="ej: insecticida, fungicida...")
+                    ep_dose   = st.text_input("Dosis recomendada", value=prod.get("dose",""), key=f"ep_dose_{pri}",
+                                              placeholder="ej: 5ml/L")
+                    ep_expiry = st.text_input("Caducidad del bote", value=prod.get("expiry",""), key=f"ep_exp_{pri}",
+                                              placeholder="ej: 2027-06")
+                    ep_notes  = st.text_area("Notas", value=prod.get("notes",""), key=f"ep_notes_{pri}", height=70)
+                    es1, es2  = st.columns(2)
+                    with es1:
+                        if st.button("💾 Guardar", key=f"ep_save_{pri}"):
+                            data["products"][pri].update({
+                                "name": ep_name.strip(), "type": ep_type.strip(),
+                                "dose": ep_dose.strip(), "expiry": ep_expiry.strip(),
+                                "notes": ep_notes.strip()
+                            })
+                            with st.spinner("Guardando..."):
+                                save_data(data)
+                            st.rerun()
+                    with es2:
+                        if st.button("🗑 Eliminar", key=f"ep_del_{pri}", type="primary"):
+                            data["products"].pop(pri)
+                            with st.spinner("Eliminando..."):
+                                save_data(data)
+                            st.rerun()
+    else:
+        st.caption("Sin productos. Añade uno a continuación.")
+
+    st.markdown("##### Añadir producto")
+    np1, np2 = st.columns(2)
+    with np1:
+        new_prod_name  = st.text_input("Nombre del producto", key="np_name", placeholder="ej: Aceite de Neem")
+        new_prod_dose  = st.text_input("Dosis", key="np_dose", placeholder="ej: 5ml/L")
+    with np2:
+        new_prod_type  = st.text_input("Tipo", key="np_type", placeholder="ej: insecticida")
+        new_prod_exp   = st.text_input("Caducidad", key="np_exp", placeholder="ej: 2027-06")
+    new_prod_notes = st.text_area("Notas", key="np_notes", placeholder="plazo seguridad, observaciones...", height=60)
+    if st.button("Añadir producto", use_container_width=True):
+        if new_prod_name.strip():
+            data.setdefault("products", []).append({
+                "name": new_prod_name.strip(), "type": new_prod_type.strip(),
+                "dose": new_prod_dose.strip(), "expiry": new_prod_exp.strip(),
+                "notes": new_prod_notes.strip()
+            })
+            with st.spinner("Guardando..."):
+                save_data(data)
+            st.success(f"Producto '{new_prod_name}' añadido")
             st.rerun()
         else:
             st.warning("Escribe un nombre.")
