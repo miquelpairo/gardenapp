@@ -49,18 +49,11 @@
     {
       "name": "Cirerer",
       "emoji": "🍒",
-      "treatments": [
-        {
-          "name": "Neem + Jabon potasico",
-          "type": "periodic",
-          "interval_days": 15,
-          "last_date": null
-        }
-      ],
+      "treatments": [],
       "events": [],
       "location": "",
       "notes": "",
-      "photo": "",
+      "photo": "plant_2_Cirerer.jpeg",
       "sick": false
     },
     {
