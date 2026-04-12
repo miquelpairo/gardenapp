@@ -13,6 +13,30 @@ from googleapiclient.http import MediaIoBaseDownload
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Garden Calendar", page_icon="🌿", layout="wide")
 
+# ── Auth ──────────────────────────────────────────────────────────────────────
+ALLOWED_EMAILS = ["pairo.miquel@gmail.com"]  # add more if needed
+
+if not st.experimental_user.is_logged_in:
+    st.markdown("""
+    <div style='max-width:400px;margin:4rem auto;text-align:center'>
+        <div style='background:linear-gradient(135deg,#2d5a27,#4a7c59);padding:2rem;border-radius:14px;color:white;margin-bottom:1.5rem'>
+            <h2 style='margin:0;font-family:serif'>🌿 Garden Calendar</h2>
+            <p style='color:rgba(255,255,255,0.75);margin:0.5rem 0 0'>Accés restringit</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    col = st.columns([1,2,1])[1]
+    with col:
+        if st.button("🔑 Entrar amb Google", use_container_width=True, type="primary"):
+            st.login("google")
+    st.stop()
+
+if st.experimental_user.email not in ALLOWED_EMAILS:
+    st.error(f"❌ Accés no autoritzat: {st.experimental_user.email}")
+    if st.button("Tancar sessió"):
+        st.logout()
+    st.stop()
+
 # ── Google Drive config ───────────────────────────────────────────────────────
 # Streamlit secrets:
 #   [gdrive]
@@ -360,6 +384,13 @@ st.markdown(f"""
     <p>{today.strftime("%A, %d de %B de %Y")}</p>
 </div>
 """, unsafe_allow_html=True)
+
+# Logout button top right
+with st.container():
+    _, col_logout = st.columns([6,1])
+    with col_logout:
+        if st.button("↩ Sortir"):
+            st.logout()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab_today, tab_cal, tab_plants, tab_add = st.tabs(["🏠 Hoy", "📅 Calendario", "🌱 Plantas", "➕ Añadir"])
