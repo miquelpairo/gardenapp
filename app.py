@@ -6,8 +6,9 @@ import io
 import requests
 from datetime import date, timedelta
 from google.oauth2 import service_account
+from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseDownload
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Garden Calendar", page_icon="🌿", layout="wide")
@@ -214,37 +215,34 @@ def drive_write_json(name, data_dict, file_id=None):
     if not DRIVE_OK:
         return False
     content = json.dumps(data_dict, indent=2, ensure_ascii=False).encode("utf-8")
-    media   = MediaIoBaseUpload(io.BytesIO(content), mimetype="application/json")
     try:
         if file_id:
-            drive_service.files().update(fileId=file_id, media_body=media).execute()
+            # Update existing file
+            url = f"https://www.googleapis.com/upload/drive/v3/files/{file_id}?uploadType=media"
+            creds = drive_service._http.credentials
+            creds.refresh(GoogleRequest())
+            headers = {
+                "Authorization": f"Bearer {creds.token}",
+                "Content-Type": "application/json",
+            }
+            r = requests.patch(url, headers=headers, data=content, timeout=15)
+            return r.status_code == 200
         else:
+            # Create new file
             meta = {"name": name, "parents": [FOLDER_ID]}
-            drive_service.files().create(body=meta, media_body=media).execute()
-        return True
-    except Exception:
+            url  = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
+            creds = drive_service._http.credentials
+            creds.refresh(GoogleRequest())
+            headers = {"Authorization": f"Bearer {creds.token}"}
+            files = {
+                "metadata": ("metadata", json.dumps(meta), "application/json"),
+                "file":     ("file", content, "application/json"),
+            }
+            r = requests.post(url, headers=headers, files=files, timeout=15)
+            return r.status_code in (200, 201)
+    except Exception as e:
+        st.error(f"Error guardando datos: {e}")
         return False
-
-def drive_upload_photo(filename, raw_bytes, mimetype="image/jpeg"):
-    """Upload or replace a photo in Drive folder. Returns file_id or None."""
-    if not DRIVE_OK:
-        return None
-    media = MediaIoBaseUpload(io.BytesIO(raw_bytes), mimetype=mimetype)
-    try:
-        fid = drive_find_file(filename)
-        if fid:
-            drive_service.files().update(fileId=fid, media_body=media).execute()
-        else:
-            meta = {"name": filename, "parents": [FOLDER_ID]}
-            f = drive_service.files().create(body=meta, media_body=media).execute()
-            fid = f["id"]
-        # Make public for direct URL access
-        drive_service.permissions().create(
-            fileId=fid, body={"role": "reader", "type": "anyone"}
-        ).execute()
-        return fid
-    except Exception:
-        return None
 
 def drive_delete_file(filename):
     """Delete a file from Drive folder."""
@@ -252,12 +250,11 @@ def drive_delete_file(filename):
         return False
     fid = drive_find_file(filename)
     if fid:
-        drive_service.files().delete(fileId=fid).execute()
+        try:
+            drive_service.files().delete(fileId=fid).execute()
+        except Exception:
+            pass
     return True
-
-def drive_photo_url(file_id):
-    """Direct view URL for a Drive file."""
-    return f"https://drive.google.com/thumbnail?id={file_id}&sz=w400"
 
 # ── Data load / save ──────────────────────────────────────────────────────────
 @st.cache_data(ttl=30)
@@ -271,7 +268,7 @@ def load_data_cached():
                 p.setdefault("location", "")
                 p.setdefault("notes", "")
                 p.setdefault("photo", "")
-                p.setdefault("photo_id", "")
+                p.setdefault("photo_b64", "")
                 p.setdefault("sick", False)
                 p.setdefault("sick_name", "")
                 p.setdefault("sick_date", "")
@@ -591,8 +588,8 @@ with tab_plants:
                             unsafe_allow_html=True)
 
             # Photo + meta
-            photo_id  = plant.get("photo_id", "")
-            photo_url = drive_photo_url(photo_id) if photo_id else None
+            photo_b64 = plant.get("photo_b64", "")
+            photo_url = f"data:image/jpeg;base64,{photo_b64}" if photo_b64 else None
             col_photo, col_meta = st.columns([1, 3])
             with col_photo:
                 if photo_url:
@@ -621,22 +618,21 @@ with tab_plants:
                 st.markdown("**Foto**")
                 uploaded = st.file_uploader("Subir foto", type=["jpg","jpeg","png","webp"], key=f"up_{pi}")
                 if uploaded:
-                    ext      = uploaded.name.rsplit(".",1)[-1].lower()
-                    fname    = f"plant_{pi}_{plant['name'].replace(' ','_')}.{ext}"
-                    mime_map = {"jpg":"image/jpeg","jpeg":"image/jpeg","png":"image/png","webp":"image/webp"}
-                    fid      = drive_upload_photo(fname, uploaded.read(), mimetype=mime_map.get(ext,"image/jpeg"))
-                    if fid:
-                        data["plants"][pi]["photo"]    = fname
-                        data["plants"][pi]["photo_id"] = fid
-                        st.success("Foto subida")
+                    raw     = uploaded.read()
+                    b64_str = base64.b64encode(raw).decode("utf-8")
+                    data["plants"][pi]["photo"]     = uploaded.name
+                    data["plants"][pi]["photo_b64"] = b64_str
+                    with st.spinner("Guardando foto..."):
+                        save_data(data)
+                    st.success("✅ Foto guardada")
 
-                if plant.get("photo_id"):
+                if plant.get("photo_b64"):
                     st.caption(f"Foto: {plant.get('photo','')}")
                     if st.button("🗑 Eliminar foto", key=f"dph_{pi}"):
-                        drive_delete_file(plant.get("photo",""))
-                        data["plants"][pi]["photo"]    = ""
-                        data["plants"][pi]["photo_id"] = ""
-                        save_data(data)
+                        data["plants"][pi]["photo"]     = ""
+                        data["plants"][pi]["photo_b64"] = ""
+                        with st.spinner("Eliminando..."):
+                            save_data(data)
                         st.rerun()
 
                 cs, cd = st.columns(2)
@@ -646,11 +642,9 @@ with tab_plants:
                                                     "location": e_loc.strip(), "notes": e_notes.strip()})
                         with st.spinner("Guardando..."):
                             save_data(data)
-                        st.rerun()
+                        st.success("✅ Guardado")
                 with cd:
                     if st.button("🗑 Eliminar", key=f"dp_{pi}", type="primary"):
-                        if plant.get("photo"):
-                            drive_delete_file(plant["photo"])
                         data["plants"].pop(pi)
                         with st.spinner("Eliminando..."):
                             save_data(data)
