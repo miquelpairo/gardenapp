@@ -16,7 +16,7 @@ st.set_page_config(page_title="Garden Calendar", page_icon="🌿", layout="wide"
 # ── Auth ──────────────────────────────────────────────────────────────────────
 ALLOWED_EMAILS = ["pairo.miquel@gmail.com"]  # add more if needed
 
-if not st.experimental_user.is_logged_in:
+if not st.user.is_logged_in:
     st.markdown("""
     <div style='max-width:400px;margin:4rem auto;text-align:center'>
         <div style='background:linear-gradient(135deg,#2d5a27,#4a7c59);padding:2rem;border-radius:14px;color:white;margin-bottom:1.5rem'>
@@ -31,8 +31,8 @@ if not st.experimental_user.is_logged_in:
             st.login("google")
     st.stop()
 
-if st.experimental_user.email not in ALLOWED_EMAILS:
-    st.error(f"❌ Accés no autoritzat: {st.experimental_user.email}")
+if st.user.email not in ALLOWED_EMAILS:
+    st.error(f"❌ Accés no autoritzat: {st.user.email}")
     if st.button("Tancar sessió"):
         st.logout()
     st.stop()
