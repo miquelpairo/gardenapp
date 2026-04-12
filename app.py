@@ -332,9 +332,11 @@ def drive_upload_photo(filename, raw_bytes, mime_type="image/jpeg"):
                           files=files, timeout=60)
         if r.status_code in (200, 201):
             return r.json().get("id")
+        st.error(f"Error Drive {r.status_code}: {r.text[:300]}")
         return None
     except Exception as e:
-        st.error(f"Error pujant foto: {e}")
+        import traceback
+        st.error(f"Error pujant foto: {e}\n{traceback.format_exc()}")
         return None
 
 def drive_read_photo(file_id):
@@ -401,11 +403,7 @@ def load_data_cached():
                 p.setdefault("events", [])
                 p.setdefault("notes", "")
                 p.setdefault("photo", "")
-                p.setdefault("photo_id", "")   # Drive file_id de la foto
-                # Migrar photo_b64 -> photo_id si existeix
-                if p.get("photo_b64") and not p.get("photo_id"):
-                    pass  # es migra manualment des de l'app si cal
-                p.pop("photo_b64", None)        # no guardem b64 al JSON
+                p.setdefault("photo_b64", "")
                 p.setdefault("sick", False)
                 p.setdefault("sick_name", "")
                 p.setdefault("sick_date", "")
@@ -421,14 +419,8 @@ def load_data_cached():
     return DEFAULT_DATA, None
 
 def save_data(data):
-    # Assegurem que no es guarda photo_b64 al JSON
-    import copy
-    clean = copy.deepcopy(data)
-    for p in clean.get("plants", []):
-        if p:
-            p.pop("photo_b64", None)
     _, fid = drive_read_json(DATA_FILENAME)
-    ok = drive_write_json(DATA_FILENAME, clean, file_id=fid)
+    ok = drive_write_json(DATA_FILENAME, data, file_id=fid)
     return ok
 
 # ── Domain helpers ────────────────────────────────────────────────────────────
@@ -772,7 +764,8 @@ try:
                                 unsafe_allow_html=True)
 
                 # Photo + meta
-                photo_url = get_photo_url(plant.get("photo_id",""))
+                photo_b64 = plant.get("photo_b64", "")
+                photo_url = f"data:image/jpeg;base64,{photo_b64}" if photo_b64 else None
                 col_photo, col_meta = st.columns([1, 3])
                 with col_photo:
                     if photo_url:
@@ -809,38 +802,22 @@ try:
                     e_notes = st.text_area("Notes", value=plant.get("notes",""), key=f"eno_{pi}", height=70)
 
                     st.markdown("**Foto**")
-                    uploaded = st.file_uploader("Pujar foto", type=["jpg","jpeg","png","webp"], key=f"up_{pi}")
+                    uploaded = st.file_uploader("Subir foto", type=["jpg","jpeg","png","webp"], key=f"up_{pi}")
                     if uploaded:
-                        raw      = uploaded.read()
-                        # Genera nom únic basat en el nom de la planta
-                        import re
-                        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', plant["name"].lower())
-                        fname    = f"{safe_name}_{pi}.jpg"
-                        with st.spinner("Pujant foto a Drive..."):
-                            new_photo_id = drive_upload_photo(fname, raw)
-                        if new_photo_id:
-                            # Esborra foto antiga si existia
-                            old_id = plant.get("photo_id","")
-                            if old_id and old_id != new_photo_id:
-                                drive_delete_photo(old_id)
-                            # Neteja cache de la foto antiga
-                            if old_id:
-                                st.session_state.pop(f"photo_cache_{old_id}", None)
-                            data["plants"][pi]["photo"]    = fname
-                            data["plants"][pi]["photo_id"] = new_photo_id
+                        raw     = uploaded.read()
+                        b64_str = base64.b64encode(raw).decode("utf-8")
+                        data["plants"][pi]["photo"]     = uploaded.name
+                        data["plants"][pi]["photo_b64"] = b64_str
+                        with st.spinner("Guardando foto..."):
                             save_data(data)
-                            st.success("✅ Foto guardada")
-                        else:
-                            st.error("Error pujant la foto")
+                        st.success("✅ Foto guardada")
 
-                    if plant.get("photo_id"):
+                    if plant.get("photo_b64"):
                         st.caption(f"Foto: {plant.get('photo','')}")
                         if st.button("🗑 Eliminar foto", key=f"dph_{pi}"):
-                            drive_delete_photo(plant["photo_id"])
-                            st.session_state.pop(f"photo_cache_{plant['photo_id']}", None)
-                            data["plants"][pi]["photo"]    = ""
-                            data["plants"][pi]["photo_id"] = ""
-                            with st.spinner("Eliminant..."):
+                            data["plants"][pi]["photo"]     = ""
+                            data["plants"][pi]["photo_b64"] = ""
+                            with st.spinner("Eliminando..."):
                                 save_data(data)
                             st.rerun()
 
