@@ -263,6 +263,8 @@ def load_data_cached():
     if d:
         try:
             d.setdefault("products", [])
+            d.setdefault("zones", ["Jardí posterior", "Entrada jardí", "Passadís nord", "Passadís sud"])
+            d.setdefault("plant_types", ["arbre", "arbust", "planta"])
             for p in d.get("plants", []):
                 p.setdefault("events", [])
                 p.setdefault("location", "")
@@ -274,6 +276,8 @@ def load_data_cached():
                 p.setdefault("sick_date", "")
                 p.setdefault("sick_end", "")
                 p.setdefault("history", [])
+                p.setdefault("zone", "")
+                p.setdefault("plant_type", "")
                 for t in p.get("treatments", []):
                     t.setdefault("type", "periodic")
             return d, fid
@@ -525,9 +529,33 @@ with tab_cal:
 # TAB 2 — PLANTS
 # ════════════════════════════════════════════════════════════════════════════
 with tab_plants:
-    for pi, plant in enumerate(data["plants"]):
+    zones      = data.get("zones", [])
+    ptypes     = data.get("plant_types", [])
+
+    # ── Filters ──────────────────────────────────────────────────────────
+    fc1, fc2, fc3 = st.columns(3)
+    with fc1:
+        flt_zone  = st.selectbox("Zona", ["Totes"] + zones, key="flt_zone")
+    with fc2:
+        flt_type  = st.selectbox("Tipus", ["Tots"] + ptypes, key="flt_type")
+    with fc3:
+        flt_sick  = st.checkbox("Només amb plaga", key="flt_sick")
+
+    filtered_plants = [
+        (pi, p) for pi, p in enumerate(data["plants"])
+        if (flt_zone == "Totes" or p.get("zone") == flt_zone)
+        and (flt_type == "Tots" or p.get("plant_type") == flt_type)
+        and (not flt_sick or p.get("sick"))
+    ]
+
+    if not filtered_plants:
+        st.caption("Cap planta amb aquests filtres.")
+
+    for pi, plant in filtered_plants:
         is_sick = plant.get("sick", False)
-        label   = f"{'🐛 ' if is_sick else ''}{plant['emoji']} {plant['name']}"
+        zone_tag = f" · {plant.get('zone')}" if plant.get("zone") else ""
+        type_tag = f" · {plant.get('plant_type')}" if plant.get("plant_type") else ""
+        label    = f"{'🐛 ' if is_sick else ''}{plant['emoji']} {plant['name']}{zone_tag}{type_tag}"
         with st.expander(label, expanded=False):
 
             # ── Plaga / enfermedad ───────────────────────────────────────
@@ -599,21 +627,35 @@ with tab_plants:
                                 "height:80px;display:flex;align-items:center;justify-content:center;"
                                 "color:#ccc;font-size:1.8rem'>🌿</div>", unsafe_allow_html=True)
             with col_meta:
+                if plant.get("zone") or plant.get("plant_type"):
+                    tags = " · ".join(filter(None, [plant.get("zone"), plant.get("plant_type")]))
+                    st.markdown(f"🏷️ {tags}")
                 if plant.get("location"):
                     st.markdown(f"📍 **{plant['location']}**")
                 if plant.get("notes"):
                     st.markdown(f"_{plant['notes']}_")
-                if not plant.get("location") and not plant.get("notes"):
-                    st.caption("Sin ubicación ni notas.")
+                if not any([plant.get("zone"), plant.get("plant_type"), plant.get("location"), plant.get("notes")]):
+                    st.caption("Sense ubicació ni notes.")
 
             # Edit popover
             with st.popover("✏️ Editar planta"):
-                e_name  = st.text_input("Nombre", value=plant["name"], key=f"en_{pi}")
+                e_name  = st.text_input("Nom", value=plant["name"], key=f"en_{pi}")
                 cur_lbl = EMOJI_BY_VALUE.get(plant["emoji"], list(EMOJI_OPTIONS.keys())[0])
-                e_emoji = EMOJI_OPTIONS[st.selectbox("Icono", list(EMOJI_OPTIONS.keys()),
+                e_emoji = EMOJI_OPTIONS[st.selectbox("Icona", list(EMOJI_OPTIONS.keys()),
                           index=list(EMOJI_OPTIONS.keys()).index(cur_lbl), key=f"ee_{pi}")]
-                e_loc   = st.text_input("Ubicación", value=plant.get("location",""), key=f"el_{pi}")
-                e_notes = st.text_area("Notas", value=plant.get("notes",""), key=f"eno_{pi}", height=70)
+
+                ez1, ez2 = st.columns(2)
+                with ez1:
+                    zone_opts  = [""] + zones
+                    zone_idx   = zone_opts.index(plant.get("zone","")) if plant.get("zone","") in zone_opts else 0
+                    e_zone     = st.selectbox("Zona", zone_opts, index=zone_idx, key=f"ez_{pi}")
+                with ez2:
+                    type_opts  = [""] + ptypes
+                    type_idx   = type_opts.index(plant.get("plant_type","")) if plant.get("plant_type","") in type_opts else 0
+                    e_ptype    = st.selectbox("Tipus", type_opts, index=type_idx, key=f"ept_{pi}")
+
+                e_loc   = st.text_input("Ubicació", value=plant.get("location",""), key=f"el_{pi}")
+                e_notes = st.text_area("Notes", value=plant.get("notes",""), key=f"eno_{pi}", height=70)
 
                 st.markdown("**Foto**")
                 uploaded = st.file_uploader("Subir foto", type=["jpg","jpeg","png","webp"], key=f"up_{pi}")
@@ -638,11 +680,14 @@ with tab_plants:
                 cs, cd = st.columns(2)
                 with cs:
                     if st.button("💾 Guardar", key=f"sp_{pi}"):
-                        data["plants"][pi].update({"name": e_name.strip(), "emoji": e_emoji,
-                                                    "location": e_loc.strip(), "notes": e_notes.strip()})
-                        with st.spinner("Guardando..."):
+                        data["plants"][pi].update({
+                            "name": e_name.strip(), "emoji": e_emoji,
+                            "location": e_loc.strip(), "notes": e_notes.strip(),
+                            "zone": e_zone, "plant_type": e_ptype,
+                        })
+                        with st.spinner("Guardant..."):
                             save_data(data)
-                        st.success("✅ Guardado")
+                        st.success("✅ Guardat")
                 with cd:
                     if st.button("🗑 Eliminar", key=f"dp_{pi}", type="primary"):
                         data["plants"].pop(pi)
@@ -884,26 +929,32 @@ with tab_add:
             st.rerun()
 
     st.markdown("---")
-    st.markdown("#### 🌳 Nueva planta")
-    new_p_name     = st.text_input("Nombre", key="new_p_name", placeholder="ej: Olivo del jardín")
-    new_p_location = st.text_input("Ubicación (opcional)", key="new_p_loc", placeholder="ej: Esquina norte")
-    emoji_label    = st.selectbox("Icono", list(EMOJI_OPTIONS.keys()), key="new_p_emoji")
+    st.markdown("#### 🌳 Nova planta")
+    new_p_name     = st.text_input("Nom", key="new_p_name", placeholder="ej: Olivera")
+    nz1, nz2      = st.columns(2)
+    with nz1:
+        new_p_zone  = st.selectbox("Zona", [""] + data.get("zones", []), key="new_p_zone")
+    with nz2:
+        new_p_ptype = st.selectbox("Tipus", [""] + data.get("plant_types", []), key="new_p_ptype")
+    new_p_location = st.text_input("Ubicació (opcional)", key="new_p_loc", placeholder="ej: Racó nord")
+    emoji_label    = st.selectbox("Icona", list(EMOJI_OPTIONS.keys()), key="new_p_emoji")
     new_p_emoji    = EMOJI_OPTIONS[emoji_label]
-    new_p_notes    = st.text_area("Notas (opcional)", key="new_p_notes", placeholder="variedad, año...", height=70)
-    if st.button("Añadir planta", type="primary", use_container_width=True):
+    new_p_notes    = st.text_area("Notes (opcional)", key="new_p_notes", placeholder="varietat, any...", height=70)
+    if st.button("Afegir planta", type="primary", use_container_width=True):
         if new_p_name.strip():
             data["plants"].append({
                 "name": new_p_name.strip(), "emoji": new_p_emoji,
                 "location": new_p_location.strip(), "notes": new_p_notes.strip(),
-                "photo": "", "treatments": [], "events": [],
+                "zone": new_p_zone, "plant_type": new_p_ptype,
+                "photo": "", "photo_b64": "", "treatments": [], "events": [],
                 "sick": False, "sick_name": "", "sick_date": "", "sick_end": "", "history": []
             })
-            with st.spinner("Guardando..."):
+            with st.spinner("Guardant..."):
                 save_data(data)
-            st.success(f"{new_p_emoji} '{new_p_name}' añadido")
+            st.success(f"{new_p_emoji} '{new_p_name}' afegit")
             st.rerun()
         else:
-            st.warning("Escribe un nombre.")
+            st.warning("Escriu un nom.")
 
     # ════════════════════════════════════════════════════════════════════
     # CATÁLOGO DE PRODUCTOS
