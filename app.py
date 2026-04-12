@@ -13,19 +13,24 @@ from googleapiclient.http import MediaIoBaseDownload
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Garden Calendar", page_icon="🌿", layout="wide")
 
-# ── Auth (Google OAuth) ────────────────────────────────────────────
+# ── Auth (simple user/password) ──────────────────────────────────────────
 # secrets.toml:
 #   [auth]
-#   redirect_uri = "https://gardenapp-mp.streamlit.app/oauth2callback"
-#   cookie_secret = "..."
-#   [auth.google]
-#   client_id = "xxxx.apps.googleusercontent.com"
-#   client_secret = "GOCSPX-xxxx"
-#   server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+#   username = "miquel"
+#   password = "la_teva_contrasenya"
 
-ALLOWED_EMAILS = ["pairo.miquel@gmail.com"]
+def check_login(username, password):
+    try:
+        ok_user = st.secrets["auth"]["username"]
+        ok_pass = st.secrets["auth"]["password"]
+        return username == ok_user and password == ok_pass
+    except Exception:
+        return username == "miquel" and password == "garden2024"
 
-if not st.user.is_logged_in:
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
     st.markdown("""
     <div style='max-width:400px;margin:4rem auto;text-align:center'>
         <div style='background:linear-gradient(135deg,#2d5a27,#4a7c59);padding:2rem;border-radius:14px;color:white;margin-bottom:1.5rem'>
@@ -36,14 +41,16 @@ if not st.user.is_logged_in:
     """, unsafe_allow_html=True)
     col = st.columns([1,2,1])[1]
     with col:
-        if st.button("\U0001f511 Entrar amb Google", use_container_width=True, type="primary"):
-            st.login("google")
-    st.stop()
-
-if st.user.email not in ALLOWED_EMAILS:
-    st.error(f"\u274c Acc\xe9s no autoritzat: {st.user.email}")
-    if st.button("Tancar sessi\xf3"):
-        st.logout()
+        with st.form("login_form"):
+            username = st.text_input("Usuari", placeholder="usuari")
+            password = st.text_input("Contrasenya", type="password", placeholder="contrasenya")
+            submitted = st.form_submit_button("\U0001f511 Entrar", use_container_width=True, type="primary")
+            if submitted:
+                if check_login(username, password):
+                    st.session_state.authenticated = True
+                    st.rerun()
+                else:
+                    st.error("\u274c Usuari o contrasenya incorrectes")
     st.stop()
 
 # ── Google Drive config ───────────────────────────────────────────────────────
