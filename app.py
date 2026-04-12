@@ -2,32 +2,45 @@ import streamlit as st
 import json
 import base64
 import calendar
+import io
 import requests
 from datetime import date, timedelta
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Garden Calendar", page_icon="🌿", layout="wide")
 
-# ── GitHub config (from Streamlit secrets) ────────────────────────────────────
-# In Streamlit Cloud, add these secrets:
-#   [github]
-#   token  = "ghp_xxxxxxxxxxxx"
-#   repo   = "username/garden-app"      # same repo as the app
-#   branch = "main"
-try:
-    GH_TOKEN  = st.secrets["github"]["token"]
-    GH_REPO   = st.secrets["github"]["repo"]
-    GH_BRANCH = st.secrets["github"].get("branch", "main")
-    GH_HEADERS = {
-        "Authorization": f"token {GH_TOKEN}",
-        "Accept": "application/vnd.github.v3+json",
-    }
-    GITHUB_OK = True
-except Exception:
-    GITHUB_OK = False
+# ── Google Drive config ───────────────────────────────────────────────────────
+# Streamlit secrets:
+#   [gdrive]
+#   folder_id = "1ABCxyz..."
+#   [gdrive.credentials]   ← paste full service account JSON fields here
+#   type = "service_account"
+#   project_id = "..."
+#   private_key_id = "..."
+#   private_key = "-----BEGIN RSA PRIVATE KEY-----\n..."
+#   client_email = "...@....iam.gserviceaccount.com"
+#   ... (rest of service account JSON)
 
-DATA_PATH   = "data/garden_data.json"
-PHOTOS_PATH = "data/fotos"
+DRIVE_OK = False
+drive_service = None
+FOLDER_ID = None
+
+try:
+    creds_dict  = dict(st.secrets["gdrive"]["credentials"])
+    FOLDER_ID   = st.secrets["gdrive"]["folder_id"]
+    creds = service_account.Credentials.from_service_account_info(
+        creds_dict,
+        scopes=["https://www.googleapis.com/auth/drive"]
+    )
+    drive_service = build("drive", "v3", credentials=creds, cache_discovery=False)
+    DRIVE_OK = True
+except Exception as e:
+    pass
+
+DATA_FILENAME = "garden_data.json"
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -167,68 +180,98 @@ DEFAULT_DATA = {
     ]
 }
 
-# ── GitHub helpers ────────────────────────────────────────────────────────────
-def gh_get_file(path, binary=False):
-    """Returns (content, sha) or (None, None). Pass binary=True for images."""
-    if not GITHUB_OK:
+# ── Google Drive helpers ──────────────────────────────────────────────────────
+def drive_find_file(name, parent_id=None):
+    """Returns file_id or None."""
+    if not DRIVE_OK:
+        return None
+    parent = parent_id or FOLDER_ID
+    q = f"name='{name}' and '{parent}' in parents and trashed=false"
+    r = drive_service.files().list(q=q, fields="files(id,name)").execute()
+    files = r.get("files", [])
+    return files[0]["id"] if files else None
+
+def drive_read_json(name):
+    """Read a JSON file from Drive folder. Returns (dict, file_id) or (None, None)."""
+    if not DRIVE_OK:
         return None, None
-    url = f"https://api.github.com/repos/{GH_REPO}/contents/{path}?ref={GH_BRANCH}"
-    r = requests.get(url, headers=GH_HEADERS, timeout=10)
-    if r.status_code == 200:
-        d = r.json()
-        raw = base64.b64decode(d["content"])
-        return (raw if binary else raw.decode("utf-8")), d["sha"]
-    return None, None
+    fid = drive_find_file(name)
+    if not fid:
+        return None, None
+    try:
+        buf = io.BytesIO()
+        req = drive_service.files().get_media(fileId=fid)
+        dl  = MediaIoBaseDownload(buf, req)
+        done = False
+        while not done:
+            _, done = dl.next_chunk()
+        return json.loads(buf.getvalue().decode("utf-8")), fid
+    except Exception:
+        return None, None
 
-def gh_put_file(path, content_str, sha=None, message="Update garden data"):
-    """Create or update a file on GitHub."""
-    if not GITHUB_OK:
+def drive_write_json(name, data_dict, file_id=None):
+    """Create or update a JSON file in Drive folder."""
+    if not DRIVE_OK:
         return False
-    url = f"https://api.github.com/repos/{GH_REPO}/contents/{path}"
-    encoded = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
-    payload = {"message": message, "content": encoded, "branch": GH_BRANCH}
-    if sha:
-        payload["sha"] = sha
-    r = requests.put(url, headers=GH_HEADERS, json=payload, timeout=15)
-    return r.status_code in (200, 201)
-
-def gh_put_binary(path, raw_bytes, sha=None, message="Upload photo"):
-    """Upload binary file (photo) to GitHub."""
-    if not GITHUB_OK:
+    content = json.dumps(data_dict, indent=2, ensure_ascii=False).encode("utf-8")
+    media   = MediaIoBaseUpload(io.BytesIO(content), mimetype="application/json")
+    try:
+        if file_id:
+            drive_service.files().update(fileId=file_id, media_body=media).execute()
+        else:
+            meta = {"name": name, "parents": [FOLDER_ID]}
+            drive_service.files().create(body=meta, media_body=media).execute()
+        return True
+    except Exception:
         return False
-    url = f"https://api.github.com/repos/{GH_REPO}/contents/{path}"
-    encoded = base64.b64encode(raw_bytes).decode("utf-8")
-    payload = {"message": message, "content": encoded, "branch": GH_BRANCH}
-    if sha:
-        payload["sha"] = sha
-    r = requests.put(url, headers=GH_HEADERS, json=payload, timeout=30)
-    return r.status_code in (200, 201)
 
-def gh_delete_file(path, sha, message="Delete photo"):
-    if not GITHUB_OK:
+def drive_upload_photo(filename, raw_bytes, mimetype="image/jpeg"):
+    """Upload or replace a photo in Drive folder. Returns file_id or None."""
+    if not DRIVE_OK:
+        return None
+    media = MediaIoBaseUpload(io.BytesIO(raw_bytes), mimetype=mimetype)
+    try:
+        fid = drive_find_file(filename)
+        if fid:
+            drive_service.files().update(fileId=fid, media_body=media).execute()
+        else:
+            meta = {"name": filename, "parents": [FOLDER_ID]}
+            f = drive_service.files().create(body=meta, media_body=media).execute()
+            fid = f["id"]
+        # Make public for direct URL access
+        drive_service.permissions().create(
+            fileId=fid, body={"role": "reader", "type": "anyone"}
+        ).execute()
+        return fid
+    except Exception:
+        return None
+
+def drive_delete_file(filename):
+    """Delete a file from Drive folder."""
+    if not DRIVE_OK:
         return False
-    url = f"https://api.github.com/repos/{GH_REPO}/contents/{path}"
-    payload = {"message": message, "sha": sha, "branch": GH_BRANCH}
-    r = requests.delete(url, headers=GH_HEADERS, json=payload, timeout=10)
-    return r.status_code == 200
+    fid = drive_find_file(filename)
+    if fid:
+        drive_service.files().delete(fileId=fid).execute()
+    return True
 
-def gh_raw_url(path):
-    """Public raw URL for images."""
-    return f"https://raw.githubusercontent.com/{GH_REPO}/{GH_BRANCH}/{path}"
+def drive_photo_url(file_id):
+    """Direct view URL for a Drive file."""
+    return f"https://drive.google.com/thumbnail?id={file_id}&sz=w400"
 
 # ── Data load / save ──────────────────────────────────────────────────────────
 @st.cache_data(ttl=30)
 def load_data_cached():
-    content, sha = gh_get_file(DATA_PATH)
-    if content:
+    d, fid = drive_read_json(DATA_FILENAME)
+    if d:
         try:
-            d = json.loads(content)
             d.setdefault("products", [])
             for p in d.get("plants", []):
                 p.setdefault("events", [])
                 p.setdefault("location", "")
                 p.setdefault("notes", "")
                 p.setdefault("photo", "")
+                p.setdefault("photo_id", "")
                 p.setdefault("sick", False)
                 p.setdefault("sick_name", "")
                 p.setdefault("sick_date", "")
@@ -236,15 +279,14 @@ def load_data_cached():
                 p.setdefault("history", [])
                 for t in p.get("treatments", []):
                     t.setdefault("type", "periodic")
-            return d, sha
+            return d, fid
         except Exception:
             pass
     return DEFAULT_DATA, None
 
 def save_data(data):
-    _, sha = gh_get_file(DATA_PATH)
-    content_str = json.dumps(data, indent=2, ensure_ascii=False)
-    ok = gh_put_file(DATA_PATH, content_str, sha=sha)
+    _, fid = drive_read_json(DATA_FILENAME)
+    ok = drive_write_json(DATA_FILENAME, data, file_id=fid)
     if ok:
         st.cache_data.clear()
     return ok
@@ -301,8 +343,8 @@ EMOJI_OPTIONS = {
 EMOJI_BY_VALUE = {v: k for k, v in EMOJI_OPTIONS.items()}
 
 # ── Load ──────────────────────────────────────────────────────────────────────
-if not GITHUB_OK:
-    st.warning("⚠️ GitHub no configurado. Añade los secrets en Streamlit Cloud. Usando datos de ejemplo.")
+if not DRIVE_OK:
+    st.warning("⚠️ Google Drive no configurado. Añade los secrets en Streamlit Cloud. Usando datos de ejemplo.")
 
 data, data_sha = load_data_cached()
 today = date.today()
@@ -549,7 +591,8 @@ with tab_plants:
                             unsafe_allow_html=True)
 
             # Photo + meta
-            photo_url = gh_raw_url(f"{PHOTOS_PATH}/{plant['photo']}") if plant.get("photo") else None
+            photo_id  = plant.get("photo_id", "")
+            photo_url = drive_photo_url(photo_id) if photo_id else None
             col_photo, col_meta = st.columns([1, 3])
             with col_photo:
                 if photo_url:
@@ -578,21 +621,21 @@ with tab_plants:
                 st.markdown("**Foto**")
                 uploaded = st.file_uploader("Subir foto", type=["jpg","jpeg","png","webp"], key=f"up_{pi}")
                 if uploaded:
-                    ext = uploaded.name.rsplit(".",1)[-1].lower()
-                    fname = f"plant_{pi}_{plant['name'].replace(' ','_')}.{ext}"
-                    _, old_sha = gh_get_file(f"{PHOTOS_PATH}/{fname}", binary=True)
-                    ok = gh_put_binary(f"{PHOTOS_PATH}/{fname}", uploaded.read(), sha=old_sha)
-                    if ok:
-                        data["plants"][pi]["photo"] = fname
+                    ext      = uploaded.name.rsplit(".",1)[-1].lower()
+                    fname    = f"plant_{pi}_{plant['name'].replace(' ','_')}.{ext}"
+                    mime_map = {"jpg":"image/jpeg","jpeg":"image/jpeg","png":"image/png","webp":"image/webp"}
+                    fid      = drive_upload_photo(fname, uploaded.read(), mimetype=mime_map.get(ext,"image/jpeg"))
+                    if fid:
+                        data["plants"][pi]["photo"]    = fname
+                        data["plants"][pi]["photo_id"] = fid
                         st.success("Foto subida")
 
-                if plant.get("photo"):
-                    st.caption(f"Foto: {plant['photo']}")
+                if plant.get("photo_id"):
+                    st.caption(f"Foto: {plant.get('photo','')}")
                     if st.button("🗑 Eliminar foto", key=f"dph_{pi}"):
-                        _, ph_sha = gh_get_file(f"{PHOTOS_PATH}/{plant['photo']}", binary=True)
-                        if ph_sha:
-                            gh_delete_file(f"{PHOTOS_PATH}/{plant['photo']}", ph_sha)
-                        data["plants"][pi]["photo"] = ""
+                        drive_delete_file(plant.get("photo",""))
+                        data["plants"][pi]["photo"]    = ""
+                        data["plants"][pi]["photo_id"] = ""
                         save_data(data)
                         st.rerun()
 
@@ -607,8 +650,7 @@ with tab_plants:
                 with cd:
                     if st.button("🗑 Eliminar", key=f"dp_{pi}", type="primary"):
                         if plant.get("photo"):
-                            _, ph_sha = gh_get_file(f"{PHOTOS_PATH}/{plant['photo']}", binary=True)
-                            if ph_sha: gh_delete_file(f"{PHOTOS_PATH}/{plant['photo']}", ph_sha)
+                            drive_delete_file(plant["photo"])
                         data["plants"].pop(pi)
                         with st.spinner("Eliminando..."):
                             save_data(data)
