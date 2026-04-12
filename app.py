@@ -725,23 +725,23 @@ with tab_plants:
                         st.warning("Escribe una descripción.")
 
             # Build unified history from: past events + plant.history entries
-            history_entries = list(plant.get("history", []))
+            # Mark which entries are native (editable) vs from events (read-only)
+            history_entries = []
+            for hi, e in enumerate(plant.get("history", [])):
+                history_entries.append({**e, "_src": "history", "_idx": hi})
             for ev in plant.get("events", []):
-                ev_d = date.fromisoformat(ev["date"])
-                if ev_d < today:
+                if date.fromisoformat(ev["date"]) < today:
                     history_entries.append({
-                        "kind":  ev.get("kind", "oneoff"),
-                        "name":  ev["name"],
-                        "date":  ev["date"],
-                        "date_end": "",
-                        "notes": "",
+                        "kind": ev.get("kind", "oneoff"), "name": ev["name"],
+                        "date": ev["date"], "date_end": "", "notes": "",
+                        "_src": "event",
                     })
 
             if history_entries:
                 st.markdown('<div class="section-title">Historial</div>', unsafe_allow_html=True)
 
                 # Type filter
-                all_kinds  = sorted({e.get("kind","oneoff") for e in history_entries})
+                all_kinds   = sorted({e.get("kind","oneoff") for e in history_entries})
                 kind_labels = {"poda":"✂️ Poda","plaga":"🐛 Plaga","oneoff":"📌 Evento","treatment":"💊 Tratamiento"}
                 filter_opts = ["Todos"] + [kind_labels.get(k, k) for k in all_kinds]
                 sel_filter  = st.selectbox("Filtrar por tipo", filter_opts, key=f"hfilter_{pi}")
@@ -749,7 +749,6 @@ with tab_plants:
                 # Year grouping
                 filtered = sorted(history_entries, key=lambda x: x["date"], reverse=True)
                 if sel_filter != "Todos":
-                    inv_labels = {v: k for k, v in kind_labels.items()}
                     filtered = [e for e in filtered if kind_labels.get(e.get("kind","oneoff")) == sel_filter]
 
                 years = sorted({e["date"][:4] for e in filtered}, reverse=True)
@@ -757,11 +756,43 @@ with tab_plants:
                     year_entries = [e for e in filtered if e["date"].startswith(year)]
                     st.markdown(f"**{year}** · {len(year_entries)} entradas")
                     for e in year_entries:
-                        icon = kind_labels.get(e.get("kind","oneoff"), "📌")
-                        date_str = e["date"]
-                        if e.get("date_end"):
-                            date_str += f" → {e['date_end']}"
-                        st.caption(f"{icon} {date_str} — {e['name']}")
+                        icon     = kind_labels.get(e.get("kind","oneoff"), "📌")
+                        date_str = e["date"] + (f" → {e['date_end']}" if e.get("date_end") else "")
+                        notes_str = f" · _{e['notes']}_" if e.get("notes") else ""
+
+                        if e["_src"] == "history":
+                            hi = e["_idx"]
+                            hc1, hc2, hc3 = st.columns([6, 1, 1])
+                            with hc1:
+                                st.caption(f"{icon} {date_str} — {e['name']}{notes_str}")
+                            with hc2:
+                                with st.popover("✏️"):
+                                    he_kind  = st.selectbox("Tipo", ["poda","treatment","plaga","oneoff"],
+                                                            format_func=lambda x: kind_labels.get(x, x),
+                                                            index=["poda","treatment","plaga","oneoff"].index(e.get("kind","oneoff")),
+                                                            key=f"eh_kind_{pi}_{hi}")
+                                    he_name  = st.text_input("Descripción", value=e["name"], key=f"eh_name_{pi}_{hi}")
+                                    he_date  = st.date_input("Fecha", value=date.fromisoformat(e["date"]), key=f"eh_date_{pi}_{hi}")
+                                    he_end   = st.date_input("Fecha fin", value=date.fromisoformat(e["date_end"]) if e.get("date_end") else None, key=f"eh_end_{pi}_{hi}")
+                                    he_notes = st.text_input("Notas", value=e.get("notes",""), key=f"eh_notes_{pi}_{hi}")
+                                    if st.button("💾 Guardar", key=f"eh_save_{pi}_{hi}"):
+                                        data["plants"][pi]["history"][hi].update({
+                                            "kind": he_kind, "name": he_name.strip(),
+                                            "date": str(he_date),
+                                            "date_end": str(he_end) if he_end else "",
+                                            "notes": he_notes.strip(),
+                                        })
+                                        with st.spinner("Guardando..."):
+                                            save_data(data)
+                                        st.rerun()
+                            with hc3:
+                                if st.button("🗑", key=f"eh_del_{pi}_{hi}"):
+                                    data["plants"][pi]["history"].pop(hi)
+                                    with st.spinner("Eliminando..."):
+                                        save_data(data)
+                                    st.rerun()
+                        else:
+                            st.caption(f"{icon} {date_str} — {e['name']}{notes_str}")
 
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 3 — ADD
