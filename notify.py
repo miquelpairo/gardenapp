@@ -1,5 +1,5 @@
 """
-notify.py � Garden Calendar daily notification
+notify.py — Garden Calendar daily notification
 Reads garden_data.json from Google Drive and sends email if there are
 overdue or upcoming treatments.
 """
@@ -18,14 +18,14 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 
-# -- Config from environment variables (GitHub Secrets) -----------------------
+# ── Config from environment variables (GitHub Secrets) ───────────────────────
 GMAIL_USER        = os.environ["GMAIL_USER"]
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"].replace(" ", "")
 NOTIFY_TO         = os.environ["NOTIFY_TO"]
 FOLDER_ID         = os.environ["GDRIVE_FOLDER_ID"]
 CREDENTIALS_JSON  = os.environ["GDRIVE_CREDENTIALS"]
 
-# -- Google Drive setup --------------------------------------------------------
+# ── Google Drive setup ────────────────────────────────────────────────────────
 creds_dict = json.loads(CREDENTIALS_JSON)
 creds = service_account.Credentials.from_service_account_info(
     creds_dict,
@@ -60,7 +60,7 @@ def next_date(last_date_str, interval):
     return date.fromisoformat(last_date_str) + timedelta(days=interval)
 
 
-# -- Load data -----------------------------------------------------------------
+# ── Load data ─────────────────────────────────────────────────────────────────
 data = read_json("garden_data.json")
 if not data:
     print("No garden_data.json found in Drive. Exiting.")
@@ -68,7 +68,7 @@ if not data:
 
 today = date.today()
 
-# -- Build notification content ------------------------------------------------
+# ── Build notification content ────────────────────────────────────────────────
 overdue, due_today, due_soon, sick_plants = [], [], [], []
 
 for plant in data.get("plants", []):
@@ -94,7 +94,7 @@ if not overdue and not due_today and not due_soon and not sick_plants:
     print("Nothing to report today. No email sent.")
     exit(0)
 
-# -- Build email ---------------------------------------------------------------
+# ── Build email ───────────────────────────────────────────────────────────────
 def section_html(title, color, entries, show_delta=True):
     if not entries:
         return ""
@@ -126,32 +126,32 @@ def section_html(title, color, entries, show_delta=True):
 
 sick_html = ""
 if sick_plants:
-    items = "".join(f"<li>{p['emoji']} <b>{p['name']}</b> � {p.get('sick_name') or 'plaga activa'} (desde {p.get('sick_date') or '�'})</li>"
+    items = "".join(f"<li>{p['emoji']} <b>{p['name']}</b> — {p.get('sick_name') or 'plaga activa'} (desde {p.get('sick_date') or '—'})</li>"
                     for p in sick_plants)
     sick_html = f"""
-    <h3 style='color:#c0392b;margin:1.2rem 0 0.4rem'>?? Plantas con plaga activa</h3>
+    <h3 style='color:#c0392b;margin:1.2rem 0 0.4rem'>🐛 Plantas con plaga activa</h3>
     <ul style='background:white;padding:12px 12px 12px 28px;border-radius:8px;margin:0'>{items}</ul>"""
 
 body_html = f"""
 <div style='font-family:sans-serif;max-width:600px;margin:auto;background:#f5f7f2;padding:20px;border-radius:12px'>
     <div style='background:linear-gradient(135deg,#2d5a27,#4a7c59);padding:16px 20px;border-radius:10px;margin-bottom:16px'>
-        <h2 style='color:white;margin:0'>?? Garden Calendar</h2>
+        <h2 style='color:white;margin:0'>🌿 Garden Calendar</h2>
         <p style='color:rgba(255,255,255,0.75);margin:4px 0 0;font-size:0.9rem'>{today.strftime("%A, %d de %B de %Y")}</p>
     </div>
     {sick_html}
-    {section_html("?? Tratamientos vencidos", "#c0392b", overdue)}
-    {section_html("?? Tratamientos para hoy", "#2d5a27", due_today, show_delta=False)}
-    {section_html("?? Pr�ximos 3 d�as", "#856404", due_soon)}
+    {section_html("⚠️ Tratamientos vencidos", "#c0392b", overdue)}
+    {section_html("📅 Tratamientos para hoy", "#2d5a27", due_today, show_delta=False)}
+    {section_html("🔔 Próximos 3 días", "#856404", due_soon)}
     <p style='color:#aaa;font-size:0.75rem;margin-top:16px;text-align:center'>
-        Garden Calendar � Notificaci�n autom�tica diaria
+        Garden Calendar · Notificación automática diaria
     </p>
 </div>
 """
 
 n_issues = len(overdue) + len(due_today) + len(sick_plants)
-subject  = f"?? Garden Calendar � {n_issues} {'urgente' if n_issues == 1 else 'urgentes'}" if n_issues else f"?? Garden Calendar � {len(due_soon)} pr�ximos"
+subject  = f"🌿 Garden Calendar — {n_issues} {'urgente' if n_issues == 1 else 'urgentes'}" if n_issues else f"🌿 Garden Calendar — {len(due_soon)} próximos"
 
-# -- Send email ----------------------------------------------------------------
+# ── Send email ────────────────────────────────────────────────────────────────
 msg = MIMEMultipart("alternative")
 msg["Subject"] = subject
 msg["From"]    = GMAIL_USER
