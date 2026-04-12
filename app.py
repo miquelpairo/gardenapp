@@ -372,6 +372,8 @@ if not DRIVE_OK:
     st.warning("⚠️ Google Drive no configurado. Añade los secrets en Streamlit Cloud. Usando datos de ejemplo.")
 
 data, data_sha = load_data_cached()
+if data is None:
+    data = DEFAULT_DATA
 today = date.today()
 
 if "cal_year"  not in st.session_state: st.session_state.cal_year  = today.year
