@@ -281,7 +281,6 @@ def drive_delete_file(filename):
     return True
 
 # ── Data load / save ──────────────────────────────────────────────────────────
-@st.cache_data(ttl=30)
 def load_data_cached():
     d, fid = drive_read_json(DATA_FILENAME)
     if d:
@@ -312,8 +311,6 @@ def load_data_cached():
 def save_data(data):
     _, fid = drive_read_json(DATA_FILENAME)
     ok = drive_write_json(DATA_FILENAME, data, file_id=fid)
-    if ok:
-        st.cache_data.clear()
     return ok
 
 # ── Domain helpers ────────────────────────────────────────────────────────────
