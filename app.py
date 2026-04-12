@@ -964,7 +964,7 @@ with tab_add:
     with np2:
         new_prod_type  = st.text_input("Tipo", key="np_type", placeholder="ej: insecticida")
         new_prod_exp   = st.text_input("Caducidad", key="np_exp", placeholder="ej: 2027-06")
-    new_prod_notes = st.text_area("Notas", key="np_notes", placeholder="plazo seguridad, observaciones...", height=60)
+    new_prod_notes = st.text_area("Notas", key="np_notes", placeholder="plazo seguridad, observaciones...", height=68)
     if st.button("Añadir producto", use_container_width=True):
         if new_prod_name.strip():
             data.setdefault("products", []).append({
