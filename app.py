@@ -13,27 +13,36 @@ from googleapiclient.http import MediaIoBaseDownload
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Garden Calendar", page_icon="🌿", layout="wide")
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
-ALLOWED_EMAILS = ["pairo.miquel@gmail.com"]  # add more if needed
+# ── Auth (Google OAuth) ────────────────────────────────────────────
+# secrets.toml:
+#   [auth]
+#   redirect_uri = "https://gardenapp-mp.streamlit.app/oauth2callback"
+#   cookie_secret = "..."
+#   [auth.google]
+#   client_id = "xxxx.apps.googleusercontent.com"
+#   client_secret = "GOCSPX-xxxx"
+#   server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+
+ALLOWED_EMAILS = ["pairo.miquel@gmail.com"]
 
 if not st.user.is_logged_in:
     st.markdown("""
     <div style='max-width:400px;margin:4rem auto;text-align:center'>
         <div style='background:linear-gradient(135deg,#2d5a27,#4a7c59);padding:2rem;border-radius:14px;color:white;margin-bottom:1.5rem'>
-            <h2 style='margin:0;font-family:serif'>🌿 Garden Calendar</h2>
-            <p style='color:rgba(255,255,255,0.75);margin:0.5rem 0 0'>Accés restringit</p>
+            <h2 style='margin:0;font-family:serif'>\U0001f33f Garden Calendar</h2>
+            <p style='color:rgba(255,255,255,0.75);margin:0.5rem 0 0'>Acc\xe9s restringit</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
     col = st.columns([1,2,1])[1]
     with col:
-        if st.button("🔑 Entrar amb Google", use_container_width=True, type="primary"):
+        if st.button("\U0001f511 Entrar amb Google", use_container_width=True, type="primary"):
             st.login("google")
     st.stop()
 
 if st.user.email not in ALLOWED_EMAILS:
-    st.error(f"❌ Accés no autoritzat: {st.user.email}")
-    if st.button("Tancar sessió"):
+    st.error(f"\u274c Acc\xe9s no autoritzat: {st.user.email}")
+    if st.button("Tancar sessi\xf3"):
         st.logout()
     st.stop()
 
@@ -52,6 +61,7 @@ if st.user.email not in ALLOWED_EMAILS:
 DRIVE_OK = False
 drive_service = None
 FOLDER_ID = None
+PHOTOS_FOLDER_ID = None  # subcarpeta fotos/ dins FOLDER_ID
 
 try:
         creds_dict  = dict(st.secrets["gdrive"]["credentials"])
@@ -66,6 +76,7 @@ except Exception as e:
     pass
 
 DATA_FILENAME = "garden_data.json"
+PHOTOS_SUBFOLDER = "fotos"
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -180,7 +191,7 @@ DEFAULT_DATA = {
     ],
     "plants": [
         {
-            "name": "Limonero", "emoji": "🍋", "location": "", "notes": "", "photo": "", "sick": False,
+            "name": "Limonero", "emoji": "🍋", "notes": "", "photo": "", "sick": False,
             "treatments": [
                 {"name": "Acetamiprid",          "type": "periodic", "interval_days": 12,
                  "last_date": str(date.today() - timedelta(days=1))},
@@ -189,14 +200,14 @@ DEFAULT_DATA = {
             ], "events": []
         },
         {
-            "name": "Higuera", "emoji": "🌿", "location": "", "notes": "", "photo": "", "sick": False,
+            "name": "Higuera", "emoji": "🌿", "notes": "", "photo": "", "sick": False,
             "treatments": [
                 {"name": "Neem + Jabon potasico", "type": "periodic", "interval_days": 15,
                  "last_date": str(date.today())},
             ], "events": []
         },
         {
-            "name": "Cerezo", "emoji": "🍒", "location": "", "notes": "", "photo": "", "sick": False,
+            "name": "Cerezo", "emoji": "🍒", "notes": "", "photo": "", "sick": False,
             "treatments": [
                 {"name": "Neem + Jabon potasico", "type": "periodic", "interval_days": 15,
                  "last_date": None},
@@ -206,6 +217,35 @@ DEFAULT_DATA = {
 }
 
 # ── Google Drive helpers ──────────────────────────────────────────────────────
+def _get_token():
+    creds = drive_service._http.credentials
+    creds.refresh(GoogleRequest())
+    return creds.token
+
+def drive_get_or_create_folder(name, parent_id):
+    """Get (or create) a subfolder by name inside parent_id. Returns folder_id."""
+    if not DRIVE_OK:
+        return None
+    q = f"name='{name}' and '{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    r = drive_service.files().list(q=q, fields="files(id)").execute()
+    files = r.get("files", [])
+    if files:
+        return files[0]["id"]
+    # Create it
+    meta = {"name": name, "mimeType": "application/vnd.google-apps.folder", "parents": [parent_id]}
+    f = drive_service.files().create(body=meta, fields="id").execute()
+    return f["id"]
+
+def drive_ensure_photos_folder():
+    """Ensure fotos/ subfolder exists and cache its ID in PHOTOS_FOLDER_ID."""
+    global PHOTOS_FOLDER_ID
+    if PHOTOS_FOLDER_ID:
+        return PHOTOS_FOLDER_ID
+    if not DRIVE_OK:
+        return None
+    PHOTOS_FOLDER_ID = drive_get_or_create_folder(PHOTOS_SUBFOLDER, FOLDER_ID)
+    return PHOTOS_FOLDER_ID
+
 def drive_find_file(name, parent_id=None):
     """Returns file_id or None."""
     if not DRIVE_OK:
@@ -240,33 +280,79 @@ def drive_write_json(name, data_dict, file_id=None):
         return False
     content = json.dumps(data_dict, indent=2, ensure_ascii=False).encode("utf-8")
     try:
+        token = _get_token()
         if file_id:
-            # Update existing file
             url = f"https://www.googleapis.com/upload/drive/v3/files/{file_id}?uploadType=media"
-            creds = drive_service._http.credentials
-            creds.refresh(GoogleRequest())
-            headers = {
-                "Authorization": f"Bearer {creds.token}",
-                "Content-Type": "application/json",
-            }
-            r = requests.patch(url, headers=headers, data=content, timeout=15)
+            r = requests.patch(url,
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                data=content, timeout=30)
             return r.status_code == 200
         else:
-            # Create new file
             meta = {"name": name, "parents": [FOLDER_ID]}
             url  = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
-            creds = drive_service._http.credentials
-            creds.refresh(GoogleRequest())
-            headers = {"Authorization": f"Bearer {creds.token}"}
             files = {
                 "metadata": ("metadata", json.dumps(meta), "application/json"),
                 "file":     ("file", content, "application/json"),
             }
-            r = requests.post(url, headers=headers, files=files, timeout=15)
+            r = requests.post(url, headers={"Authorization": f"Bearer {token}"},
+                              files=files, timeout=30)
             return r.status_code in (200, 201)
     except Exception as e:
         st.error(f"Error guardando datos: {e}")
         return False
+
+def drive_upload_photo(filename, raw_bytes, mime_type="image/jpeg"):
+    """Upload a photo to fotos/ subfolder. Returns file_id or None."""
+    if not DRIVE_OK:
+        return None
+    photos_fid = drive_ensure_photos_folder()
+    if not photos_fid:
+        return None
+    try:
+        token = _get_token()
+        # Delete existing file with same name first
+        old_fid = drive_find_file(filename, parent_id=photos_fid)
+        if old_fid:
+            drive_service.files().delete(fileId=old_fid).execute()
+        # Upload new
+        meta = {"name": filename, "parents": [photos_fid]}
+        url  = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
+        files = {
+            "metadata": ("metadata", json.dumps(meta), "application/json"),
+            "file":     ("file", raw_bytes, mime_type),
+        }
+        r = requests.post(url, headers={"Authorization": f"Bearer {token}"},
+                          files=files, timeout=60)
+        if r.status_code in (200, 201):
+            return r.json().get("id")
+        return None
+    except Exception as e:
+        st.error(f"Error pujant foto: {e}")
+        return None
+
+def drive_read_photo(file_id):
+    """Download a photo by file_id. Returns bytes or None."""
+    if not DRIVE_OK or not file_id:
+        return None
+    try:
+        buf = io.BytesIO()
+        req = drive_service.files().get_media(fileId=file_id)
+        dl  = MediaIoBaseDownload(buf, req)
+        done = False
+        while not done:
+            _, done = dl.next_chunk()
+        return buf.getvalue()
+    except Exception:
+        return None
+
+def drive_delete_photo(file_id):
+    """Delete a photo by file_id."""
+    if not DRIVE_OK or not file_id:
+        return
+    try:
+        drive_service.files().delete(fileId=file_id).execute()
+    except Exception:
+        pass
 
 def drive_delete_file(filename):
     """Delete a file from Drive folder."""
@@ -280,6 +366,20 @@ def drive_delete_file(filename):
             pass
     return True
 
+# ── Photo cache (session) ─────────────────────────────────────────────────────
+def get_photo_url(photo_id):
+    """Return a data: URL for the photo, using session cache to avoid re-downloading."""
+    if not photo_id:
+        return None
+    cache_key = f"photo_cache_{photo_id}"
+    if cache_key not in st.session_state:
+        raw = drive_read_photo(photo_id)
+        if raw:
+            st.session_state[cache_key] = "data:image/jpeg;base64," + base64.b64encode(raw).decode()
+        else:
+            st.session_state[cache_key] = None
+    return st.session_state[cache_key]
+
 # ── Data load / save ──────────────────────────────────────────────────────────
 def load_data_cached():
     d, fid = drive_read_json(DATA_FILENAME)
@@ -292,10 +392,13 @@ def load_data_cached():
                 if p is None:
                     continue
                 p.setdefault("events", [])
-                p.setdefault("location", "")
                 p.setdefault("notes", "")
                 p.setdefault("photo", "")
-                p.setdefault("photo_b64", "")
+                p.setdefault("photo_id", "")   # Drive file_id de la foto
+                # Migrar photo_b64 -> photo_id si existeix
+                if p.get("photo_b64") and not p.get("photo_id"):
+                    pass  # es migra manualment des de l'app si cal
+                p.pop("photo_b64", None)        # no guardem b64 al JSON
                 p.setdefault("sick", False)
                 p.setdefault("sick_name", "")
                 p.setdefault("sick_date", "")
@@ -311,8 +414,14 @@ def load_data_cached():
     return DEFAULT_DATA, None
 
 def save_data(data):
+    # Assegurem que no es guarda photo_b64 al JSON
+    import copy
+    clean = copy.deepcopy(data)
+    for p in clean.get("plants", []):
+        if p:
+            p.pop("photo_b64", None)
     _, fid = drive_read_json(DATA_FILENAME)
-    ok = drive_write_json(DATA_FILENAME, data, file_id=fid)
+    ok = drive_write_json(DATA_FILENAME, clean, file_id=fid)
     return ok
 
 # ── Domain helpers ────────────────────────────────────────────────────────────
@@ -656,8 +765,7 @@ try:
                                 unsafe_allow_html=True)
 
                 # Photo + meta
-                photo_b64 = plant.get("photo_b64", "")
-                photo_url = f"data:image/jpeg;base64,{photo_b64}" if photo_b64 else None
+                photo_url = get_photo_url(plant.get("photo_id",""))
                 col_photo, col_meta = st.columns([1, 3])
                 with col_photo:
                     if photo_url:
@@ -670,11 +778,9 @@ try:
                     if plant.get("zone") or plant.get("plant_type"):
                         tags = " · ".join(filter(None, [plant.get("zone"), plant.get("plant_type")]))
                         st.markdown(f"🏷️ {tags}")
-                    if plant.get("location"):
-                        st.markdown(f"📍 **{plant['location']}**")
                     if plant.get("notes"):
                         st.markdown(f"_{plant['notes']}_")
-                    if not any([plant.get("zone"), plant.get("plant_type"), plant.get("location"), plant.get("notes")]):
+                    if not any([plant.get("zone"), plant.get("plant_type"), plant.get("notes")]):
                         st.caption("Sense ubicació ni notes.")
 
                 # Edit popover
@@ -693,27 +799,41 @@ try:
                         type_opts  = [""] + ptypes
                         type_idx   = type_opts.index(plant.get("plant_type","")) if plant.get("plant_type","") in type_opts else 0
                         e_ptype    = st.selectbox("Tipus", type_opts, index=type_idx, key=f"ept_{pi}")
-
-                    e_loc   = st.text_input("Ubicació", value=plant.get("location",""), key=f"el_{pi}")
                     e_notes = st.text_area("Notes", value=plant.get("notes",""), key=f"eno_{pi}", height=70)
 
                     st.markdown("**Foto**")
-                    uploaded = st.file_uploader("Subir foto", type=["jpg","jpeg","png","webp"], key=f"up_{pi}")
+                    uploaded = st.file_uploader("Pujar foto", type=["jpg","jpeg","png","webp"], key=f"up_{pi}")
                     if uploaded:
-                        raw     = uploaded.read()
-                        b64_str = base64.b64encode(raw).decode("utf-8")
-                        data["plants"][pi]["photo"]     = uploaded.name
-                        data["plants"][pi]["photo_b64"] = b64_str
-                        with st.spinner("Guardando foto..."):
+                        raw      = uploaded.read()
+                        # Genera nom únic basat en el nom de la planta
+                        import re
+                        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', plant["name"].lower())
+                        fname    = f"{safe_name}_{pi}.jpg"
+                        with st.spinner("Pujant foto a Drive..."):
+                            new_photo_id = drive_upload_photo(fname, raw)
+                        if new_photo_id:
+                            # Esborra foto antiga si existia
+                            old_id = plant.get("photo_id","")
+                            if old_id and old_id != new_photo_id:
+                                drive_delete_photo(old_id)
+                            # Neteja cache de la foto antiga
+                            if old_id:
+                                st.session_state.pop(f"photo_cache_{old_id}", None)
+                            data["plants"][pi]["photo"]    = fname
+                            data["plants"][pi]["photo_id"] = new_photo_id
                             save_data(data)
-                        st.success("✅ Foto guardada")
+                            st.success("✅ Foto guardada")
+                        else:
+                            st.error("Error pujant la foto")
 
-                    if plant.get("photo_b64"):
+                    if plant.get("photo_id"):
                         st.caption(f"Foto: {plant.get('photo','')}")
                         if st.button("🗑 Eliminar foto", key=f"dph_{pi}"):
-                            data["plants"][pi]["photo"]     = ""
-                            data["plants"][pi]["photo_b64"] = ""
-                            with st.spinner("Eliminando..."):
+                            drive_delete_photo(plant["photo_id"])
+                            st.session_state.pop(f"photo_cache_{plant['photo_id']}", None)
+                            data["plants"][pi]["photo"]    = ""
+                            data["plants"][pi]["photo_id"] = ""
+                            with st.spinner("Eliminant..."):
                                 save_data(data)
                             st.rerun()
 
@@ -721,8 +841,7 @@ try:
                     with cs:
                         if st.button("💾 Guardar", key=f"sp_{pi}"):
                             data["plants"][pi].update({
-                                "name": e_name.strip(), "emoji": e_emoji,
-                                "location": e_loc.strip(), "notes": e_notes.strip(),
+                                "name": e_name.strip(), "emoji": e_emoji, "notes": e_notes.strip(),
                                 "zone": e_zone, "plant_type": e_ptype,
                             })
                             with st.spinner("Guardant..."):
@@ -976,15 +1095,13 @@ try:
             new_p_zone  = st.selectbox("Zona", [""] + data.get("zones", []), key="new_p_zone")
         with nz2:
             new_p_ptype = st.selectbox("Tipus", [""] + data.get("plant_types", []), key="new_p_ptype")
-        new_p_location = st.text_input("Ubicació (opcional)", key="new_p_loc", placeholder="ej: Racó nord")
         emoji_label    = st.selectbox("Icona", list(EMOJI_OPTIONS.keys()), key="new_p_emoji")
         new_p_emoji    = EMOJI_OPTIONS[emoji_label]
         new_p_notes    = st.text_area("Notes (opcional)", key="new_p_notes", placeholder="varietat, any...", height=70)
         if st.button("Afegir planta", type="primary", use_container_width=True):
             if new_p_name.strip():
                 data["plants"].append({
-                    "name": new_p_name.strip(), "emoji": new_p_emoji,
-                    "location": new_p_location.strip(), "notes": new_p_notes.strip(),
+                    "name": new_p_name.strip(), "emoji": new_p_emoji, "notes": new_p_notes.strip(),
                     "zone": new_p_zone, "plant_type": new_p_ptype,
                     "photo": "", "photo_b64": "", "treatments": [], "events": [],
                     "sick": False, "sick_name": "", "sick_date": "", "sick_end": "", "history": []
