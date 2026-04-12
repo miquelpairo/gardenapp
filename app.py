@@ -289,6 +289,8 @@ def load_data_cached():
             d.setdefault("zones", ["Jardí posterior", "Entrada jardí", "Passadís nord", "Passadís sud"])
             d.setdefault("plant_types", ["arbre", "arbust", "planta"])
             for p in d.get("plants", []):
+                if p is None:
+                    continue
                 p.setdefault("events", [])
                 p.setdefault("location", "")
                 p.setdefault("notes", "")
@@ -304,8 +306,8 @@ def load_data_cached():
                 for t in p.get("treatments", []):
                     t.setdefault("type", "periodic")
             return d, fid
-        except Exception:
-            pass
+        except Exception as e:
+            st.error(f"Error carregant dades: {e}")
     return DEFAULT_DATA, None
 
 def save_data(data):
@@ -369,6 +371,12 @@ if not DRIVE_OK:
     st.warning("⚠️ Google Drive no configurado. Añade los secrets en Streamlit Cloud. Usando datos de ejemplo.")
 
 data, data_sha = load_data_cached()
+if data is None:
+    # Retry once — can happen right after OAuth redirect clears cache
+    import time
+    time.sleep(1)
+    st.cache_data.clear()
+    data, data_sha = load_data_cached()
 if data is None:
     data = DEFAULT_DATA
 today = date.today()
