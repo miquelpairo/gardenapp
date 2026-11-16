@@ -19,13 +19,20 @@ st.set_page_config(page_title="Garden Calendar", page_icon="🌿", layout="wide"
 #   username = "miquel"
 #   password = "la_teva_contrasenya"
 
+import hmac
+
 def check_login(username, password):
+    """Sense secrets [auth] configurats no entra ningú (cap credencial per defecte)."""
     try:
-        ok_user = st.secrets["auth"]["username"]
-        ok_pass = st.secrets["auth"]["password"]
-        return username == ok_user and password == ok_pass
+        ok_user = str(st.secrets["auth"]["username"])
+        ok_pass = str(st.secrets["auth"]["password"])
     except Exception:
-        return username == "miquel" and password == "garden2024"
+        st.error("⚠️ Falta la secció [auth] als secrets de l'app.")
+        return False
+    if not ok_user or not ok_pass:
+        return False
+    return (hmac.compare_digest(username.encode(), ok_user.encode())
+            and hmac.compare_digest(password.encode(), ok_pass.encode()))
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False

@@ -1,1 +1,5 @@
 .streamlit/secrets.toml
+
+# Dades locals: l'app i notify.py treballen amb Google Drive
+data/
+__pycache__/
